@@ -111,38 +111,52 @@ export class MuJoCoDemo {
 
   handleKeyPress(event) {
     const key = event.key.toLowerCase();
-    const stepSize = 0.5;
+    const stepSize = 0.1;
 
     switch (key) {
       case 'q':
         this.moveActuator('hip_y', stepSize);
         break;
-      case 'w':
+      case 'a':
         this.moveActuator('hip_y_', -stepSize);
         break;
-      case 'e':
+      case 'w':
         this.moveActuator('hip_', stepSize);
         break;
-      case 'r':
+      case 's':
         this.moveActuator('hip_', -stepSize);
         break;
-      case 'a':
+      case 'e':
         this.moveActuator('knee_', stepSize);
         break;
-      case 's':
+      case 'd':
         this.moveActuator('knee_', -stepSize);
         break;
-      case 'd':
+      case 'r':
         this.moveActuator('abdomen_y', stepSize);
         break;
       case 'f':
         this.moveActuator('abdomen_y', -stepSize);
         break;
-      case 'z':
+      case 't':
         this.moveActuator('ankle_', stepSize);
         break;
-      case 'x':
+      case 'g':
         this.moveActuator('ankle_', -stepSize);
+        break;
+      case 'y':
+        this.moveActuator('shoulder1_', stepSize);
+        this.moveActuator('shoulder2_', stepSize);
+        break;
+      case 'h':
+        this.moveActuator('shoulder1_', -stepSize);
+        this.moveActuator('shoulder2_', -stepSize);
+        break;
+      case 'u':
+        this.moveActuator('elbow_', stepSize);
+        break;
+      case 'j':
+        this.moveActuator('elbow_', -stepSize);
         break;
     }
   }

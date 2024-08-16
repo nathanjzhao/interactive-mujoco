@@ -25,7 +25,7 @@ export class MuJoCoDemo {
     this.simulation = new mujoco.Simulation(this.model, this.state);
 
     // Define Random State Variables
-    this.params = { scene: initialScene, paused: false, help: false, ctrlnoiserate: 0.0, ctrlnoisestd: 0.0, keyframeNumber: 0 };
+    this.params = { scene: initialScene, paused: false, useModel: true, help: false, ctrlnoiserate: 0.0, ctrlnoisestd: 0.0, keyframeNumber: 0 };
     this.mujoco_time = 0.0;
     this.bodies  = {}, this.lights = {};
     this.tmpVec  = new THREE.Vector3();
@@ -70,6 +70,7 @@ export class MuJoCoDemo {
 
     this.actuatorNames = [];
     this.actuatorRanges = [];
+    this.loadPPOModel();
 
     window.addEventListener('resize', this.onWindowResize.bind(this));
 
@@ -89,10 +90,10 @@ export class MuJoCoDemo {
     this.gui = new GUI();
     setupGUI(this);
 
-    this.initializeActuators();
+    // this.initializeActuators();
   }
 
-
+  // does this ordering align with the ordering of the model output?
   initializeActuators() {
     const textDecoder = new TextDecoder();
     for (let i = 0; i < this.model.nu; i++) {
@@ -108,6 +109,53 @@ export class MuJoCoDemo {
     }
   }
 
+
+  // should re-get pawel-diff
+  async loadPPOModel() {
+    switch (this.params.scene) {
+      case 'humanoid.xml':
+        this.ppo_model = await tf.loadLayersModel('models/2_frame/model.json');
+        this.getObservation = () => this.getObservationSkeleton(2, 10, 6);
+        break;
+      case 'blank':
+        this.ppo_model = await tf.loadLayersModel('models/cvals+2_frames/model.json');
+        break;
+      case 'brax_humanoid.xml':
+        this.ppo_model = await tf.loadLayersModel('models/brax_humanoid_cvalless_just_stand/model.json');
+        this.getObservation = () => this.getObservationSkeleton(0, -1, -1);
+        break;
+      case 'brax_humanoidstandup.xml':
+        this.ppo_model = await tf.loadLayersModel('models/brax_humanoid_standup/model.json');
+        this.getObservation = () => this.getObservationSkeleton(0, 20, 12);
+        break;
+      default:
+        throw new Error(`Unknown model path: ${this.params.scene}`);
+    }
+  }
+
+  getObservationSkeleton(qpos_slice, cinert_slice, cvel_slice) {
+    const qpos = this.simulation.qpos.slice(qpos_slice);
+    const qvel = this.simulation.qvel;
+    const cinert = cinert_slice !== -1 ? this.simulation.cinert.slice(cinert_slice) : [];
+    const cvel = cvel_slice !== -1 ? this.simulation.cvel.slice(cvel_slice) : [];
+    const qfrc_actuator = this.simulation.qfrc_actuator;
+  
+    // console.log('qpos length:', qpos.length);
+    // console.log('qvel length:', qvel.length);
+    // console.log('cinert length:', cinert.length);
+    // console.log('cvel length:', cvel.length);
+    // console.log('qfrc_actuator length:', qfrc_actuator.length);
+  
+    const obsComponents = [
+      ...qpos,
+      ...qvel,
+      ...cinert,
+      ...cvel,
+      ...qfrc_actuator
+    ];
+  
+    return obsComponents;
+  }
 
   handleKeyPress(event) {
     const key = event.key.toLowerCase();
@@ -184,7 +232,41 @@ export class MuJoCoDemo {
     this.controls.update();
 
     if (!this.params["paused"]) {
-      // this.simulation.xfrc_applied.fill(3.0)
+
+      if (this.ppo_model && this.params["useModel"]) { 
+        const observationArray = this.getObservation();
+        const inputTensor = tf.tensor2d([observationArray]);
+        const resultTensor = this.ppo_model.predict(inputTensor);
+
+        resultTensor.data().then(data => {
+          // console.log('Model output:', data);
+          
+          // Assuming the model output corresponds to actuator values
+          for (let i = 0; i < data.length; i++) {
+              // Ensure the actuator index is within bounds
+              if (i < this.simulation.ctrl.length) {
+
+                  let clippedValue = Math.max(-1, Math.min(1, data[i]));
+
+                  let [min, max] = this.actuatorRanges[i];
+
+                  // Scale to fit between min and max
+                  let newValue = min + (clippedValue + 1) * (max - min) / 2;
+
+                  // Update the actuator value
+                  this.simulation.ctrl[i] = newValue;
+                  
+                  // Optionally, update the corresponding parameter
+                  this.params[this.actuatorNames[i]] = newValue;
+              } else {
+                console.error('Model output index out of bounds:', i);
+              }
+          }
+        });
+      }
+
+      // console.log(this.model)
+      // console.log(this.model.getOptions().timestep);
 
       let timestep = this.model.getOptions().timestep;
       if (timeMS - this.mujoco_time > 35.0) { this.mujoco_time = timeMS; }
@@ -199,12 +281,9 @@ export class MuJoCoDemo {
           let currentCtrl = this.simulation.ctrl;
           for (let i = 0; i < currentCtrl.length; i++) {
             currentCtrl[i] = rate * currentCtrl[i] + scale * standardNormal();
-            this.params["Actuator " + i] = currentCtrl[i];
+            this.params[this.actuatorNames[i]] = currentCtrl[i];
           }
         }
-        
-        // actions = this.simulation.ctrl
-        console.log("c", this.simulation.ctrl)
 
         // Clear old perturbations, apply new ones.
         for (let i = 0; i < this.simulation.qfrc_applied.length; i++) { this.simulation.qfrc_applied[i] = 0.0; }

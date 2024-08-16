@@ -7,6 +7,9 @@ export async function reloadFunc() {
   this.scene.remove(this.scene.getObjectByName("MuJoCo Root"));
   [this.model, this.state, this.simulation, this.bodies, this.lights] =
     await loadSceneFromURL(this.mujoco, this.params.scene, this);
+
+  // console.log(this.model, this.state, this.simulation, this.bodies, this.lights);
+
   this.simulation.forward();
   for (let i = 0; i < this.updateGUICallbacks.length; i++) {
     this.updateGUICallbacks[i](this.model, this.simulation, this.params);
@@ -27,9 +30,16 @@ export function setupGUI(parentContext) {
   // Add scene selection dropdown.
   let reload = reloadFunc.bind(parentContext);
   parentContext.gui.add(parentContext.params, 'scene', {
-    "Humanoid": "humanoid.xml", "Cassie": "agility_cassie/scene.xml",
-    "Hammock": "hammock.xml", "Balloons": "balloons.xml", "Hand": "shadow_hand/scene_right.xml",
-    "Flag": "flag.xml", "Mug": "mug.xml", "Tendon": "model_with_tendon.xml"
+    "Humanoid": "humanoid.xml", 
+    "Brax Humanoid": "brax_humanoid.xml", 
+    "Brax Humanoid Standup": "brax_humanoidstandup.xml", 
+    "Dora": "dora/dora2.xml", 
+    "Hammock": "hammock.xml",
+    "Mug": "mug.xml",
+    "Stompy Legs": "stompy/legs.xml",
+    // "Cassie": "agility_cassie/scene.xml",
+    // "Hammock": "hammock.xml", "Balloons": "balloons.xml", "Hand": "shadow_hand/scene_right.xml",
+    // "Flag": "flag.xml", "Mug": "mug.xml", "Tendon": "model_with_tendon.xml"
   }).name('Example Scene').onChange(reload);
 
   // Add a help menu.
@@ -158,6 +168,16 @@ export function setupGUI(parentContext) {
   actionInnerHTML += 'Play / Pause<br>';
   keyInnerHTML += 'Space<br>';
 
+  // Add enable / disable model checkbox.
+  document.addEventListener('keydown', (event) => {
+    if (event.ctrlKey && event.code === 'KeyM') {
+      parentContext.params.useModel = !parentContext.params.useModel;
+      event.preventDefault();
+    }
+  });
+  actionInnerHTML += 'Enable / Disable Model<br>';
+  keyInnerHTML += 'Ctrl M<br>';
+
   // Add reload model button.
   // Parameters:
   //  Under "Simulation" folder.
@@ -228,6 +248,7 @@ export function setupGUI(parentContext) {
       let actuatorGUI = actuatorFolder.add(parentContext.params, name, act_range[2 * i], act_range[2 * i + 1], 0.01).name(name).listen();
       actuatorGUIs.push(actuatorGUI);
       actuatorGUI.onChange((value) => {
+        console.log("value", value)
         simulation.ctrl[i] = value;
       });
     }
@@ -247,7 +268,6 @@ export function setupGUI(parentContext) {
   document.addEventListener('keydown', (event) => {
     console.log("event", event);
     if (event.ctrlKey && event.code === 'KeyA') {
-      console.log()
       // TODO: Use free camera parameters from MuJoCo
       parentContext.camera.position.set(2.0, 1.7, 1.7);
       parentContext.controls.target.set(0, 0.7, 0);
@@ -274,12 +294,32 @@ export async function loadSceneFromURL(mujoco, filename, parent) {
       parent.model      = null;
       parent.state      = null;
       parent.simulation = null;
+      parent.ppo_model  = null;
     }
 
+    // Function to capture and log errors
+    mujoco.mj_error = function(msg) {
+      console.error("MuJoCo Error: " + msg);
+    };
+  
+    // Function to capture and log warnings
+    mujoco.mj_warning = function(msg) {
+        console.warn("MuJoCo Warning: " + msg);
+    };
+  
     // Load in the state from XML.
-    parent.model       = mujoco.Model.load_from_xml("/working/"+filename);
+    try {
+        parent.model       = mujoco.Model.load_from_xml("/working/"+filename);
+    } catch (error) {
+        console.error('Failed to load model:', error);
+    }
     parent.state       = new mujoco.State(parent.model);
     parent.simulation  = new mujoco.Simulation(parent.model, parent.state);
+    
+    parent.actuatorNames = [];
+    parent.actuatorRanges = [];
+    parent.loadPPOModel()
+    parent.initializeActuators();
 
     let model = parent.model;
     let state = parent.state;
@@ -537,70 +577,74 @@ export async function downloadExampleScenesFolder(mujoco) {
   let allFiles = [
     "22_humanoids.xml",
     "adhesion.xml",
-    "agility_cassie/assets/achilles-rod.obj",
-    "agility_cassie/assets/cassie-texture.png",
-    "agility_cassie/assets/foot-crank.obj",
-    "agility_cassie/assets/foot.obj",
-    "agility_cassie/assets/heel-spring.obj",
-    "agility_cassie/assets/hip-pitch.obj",
-    "agility_cassie/assets/hip-roll.obj",
-    "agility_cassie/assets/hip-yaw.obj",
-    "agility_cassie/assets/knee-spring.obj",
-    "agility_cassie/assets/knee.obj",
-    "agility_cassie/assets/pelvis.obj",
-    "agility_cassie/assets/plantar-rod.obj",
-    "agility_cassie/assets/shin.obj",
-    "agility_cassie/assets/tarsus.obj",
-    "agility_cassie/cassie.xml",
-    "agility_cassie/scene.xml",
     "arm26.xml",
     "balloons.xml",
+    "brax_humanoid.xml",
+    "brax_humanoidstandup.xml",
+    "dora/dora2.xml",
+    "dora/dora2_terrain.xml",
+    "dora/meshes/base_link.STL",
+    "dora/meshes/l_arm_elbow_Link.STL",
+    "dora/meshes/l_arm_shoulder_pitch_Link.STL",
+    "dora/meshes/l_arm_shoulder_roll_Link.STL",
+    "dora/meshes/l_arm_shoulder_yaw_Link.STL",
+    "dora/meshes/l_leg_ankle_pitch_Link.STL",
+    "dora/meshes/l_leg_ankle_roll_Link.STL",
+    "dora/meshes/l_leg_hip_pitch_Link.STL",
+    "dora/meshes/l_leg_hip_roll_Link.STL",
+    "dora/meshes/l_leg_hip_yaw_Link.STL",
+    "dora/meshes/l_leg_knee_Link.STL",
+    "dora/meshes/r_arm_elbow_Link.STL",
+    "dora/meshes/r_arm_shoulder_pitch_Link.STL",
+    "dora/meshes/r_arm_shoulder_roll_Link.STL",
+    "dora/meshes/r_arm_shoulder_yaw_Link.STL",
+    "dora/meshes/r_leg_ankle_pitch_Link.STL",
+    "dora/meshes/r_leg_ankle_roll_Link.STL",
+    "dora/meshes/r_leg_hip_pitch_Link.STL",
+    "dora/meshes/r_leg_hip_roll_Link.STL",
+    "dora/meshes/r_leg_hip_yaw_Link.STL",
+    "dora/meshes/r_leg_knee_Link.STL",
+    "dora/terrain/uneven.png",
     "flag.xml",
     "hammock.xml",
     "humanoid.xml",
     "humanoid_body.xml",
+    "model_with_tendon.xml",
     "mug.obj",
     "mug.png",
     "mug.xml",
     "scene.xml",
-    "shadow_hand/assets/f_distal_pst.obj",
-    "shadow_hand/assets/f_knuckle.obj",
-    "shadow_hand/assets/f_middle.obj",
-    "shadow_hand/assets/f_proximal.obj",
-    "shadow_hand/assets/forearm_0.obj",
-    "shadow_hand/assets/forearm_1.obj",
-    "shadow_hand/assets/forearm_collision.obj",
-    "shadow_hand/assets/lf_metacarpal.obj",
-    "shadow_hand/assets/mounting_plate.obj",
-    "shadow_hand/assets/palm.obj",
-    "shadow_hand/assets/th_distal_pst.obj",
-    "shadow_hand/assets/th_middle.obj",
-    "shadow_hand/assets/th_proximal.obj",
-    "shadow_hand/assets/wrist.obj",
-    "shadow_hand/left_hand.xml",
-    "shadow_hand/right_hand.xml",
-    "shadow_hand/scene_left.xml",
-    "shadow_hand/scene_right.xml",
     "simple.xml",
     "slider_crank.xml",
-    "model_with_tendon.xml",
   ];
 
   let requests = allFiles.map((url) => fetch("./examples/scenes/" + url));
   let responses = await Promise.all(requests);
+
   for (let i = 0; i < responses.length; i++) {
       let split = allFiles[i].split("/");
       let working = '/working/';
       for (let f = 0; f < split.length - 1; f++) {
           working += split[f];
-          if (!mujoco.FS.analyzePath(working).exists) { mujoco.FS.mkdir(working); }
+          if (!mujoco.FS.analyzePath(working).exists) {
+              mujoco.FS.mkdir(working);
+          }
           working += "/";
       }
 
-      if (allFiles[i].endsWith(".png") || allFiles[i].endsWith(".stl") || allFiles[i].endsWith(".skn")) {
-          mujoco.FS.writeFile("/working/" + allFiles[i], new Uint8Array(await responses[i].arrayBuffer()));
+      let filePath = "/working/" + allFiles[i];
+      
+      if (allFiles[i].endsWith(".png") || allFiles[i].endsWith(".stl") || allFiles[i].endsWith(".skn") || allFiles[i].endsWith(".STL")) {
+          mujoco.FS.writeFile(filePath, new Uint8Array(await responses[i].arrayBuffer()));
       } else {
-          mujoco.FS.writeFile("/working/" + allFiles[i], await responses[i].text());
+          mujoco.FS.writeFile(filePath, await responses[i].text());
+      }
+
+      // Check if the file exists in the Mujoco filesystem after writing
+      if (mujoco.FS.analyzePath(filePath).exists) {
+          console.log(`File ${filePath} written successfully.`);
+      } else {
+          console.error(`Failed to write file ${filePath}.`);
       }
   }
 }

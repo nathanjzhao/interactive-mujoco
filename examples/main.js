@@ -128,8 +128,12 @@ export class MuJoCoDemo {
         this.ppo_model = await tf.loadLayersModel('models/brax_humanoid_standup/model.json');
         this.getObservation = () => this.getObservationSkeleton(0, 20, 12);
         break;
+      case 'dora/dora2.xml':
+        this.ppo_model = await tf.loadLayersModel('models/dora/model.json');
+        this.getObservation = () => this.getObservationSkeleton(0, 100, 72); // 172 diff total 
+        break;
       default:
-        throw new Error(`Unknown model path: ${this.params.scene}`);
+        throw new Error(`Unknown Tensorflow.js model for XML path: ${this.params.scene}`);
     }
   }
 
@@ -264,9 +268,6 @@ export class MuJoCoDemo {
           }
         });
       }
-
-      // console.log(this.model)
-      // console.log(this.model.getOptions().timestep);
 
       let timestep = this.model.getOptions().timestep;
       if (timeMS - this.mujoco_time > 35.0) { this.mujoco_time = timeMS; }

@@ -27,20 +27,136 @@ export function setupGUI(parentContext) {
     parentContext.controls.target.set(0, 0.7, 0);
     parentContext.controls.update(); });
 
-  // Add scene selection dropdown.
-  let reload = reloadFunc.bind(parentContext);
-  parentContext.gui.add(parentContext.params, 'scene', {
-    "Humanoid": "humanoid.xml", 
-    "Brax Humanoid": "brax_humanoid.xml", 
+  
+  parentContext.allScenes = {
+    "Humanoid": "humanoid.xml",
+    "Brax Humanoid": "brax_humanoid.xml",
     "Brax Humanoid Standup": "brax_humanoidstandup.xml", 
     "Dora": "dora/dora2.xml", 
     "Hammock": "hammock.xml",
-    // "Mug": "mug.xml",
-    // "Stompy Legs": "stompy/legs.xml",
-    // "Cassie": "agility_cassie/scene.xml",
-    // "Hammock": "hammock.xml", "Balloons": "balloons.xml", "Hand": "shadow_hand/scene_right.xml",
-    // "Flag": "flag.xml", "Mug": "mug.xml", "Tendon": "model_with_tendon.xml"
-  }).name('Example Scene').onChange(reload);
+  };
+    
+  // Add scene selection dropdown.
+  let reload = reloadFunc.bind(parentContext);
+  let sceneDropdown = parentContext.gui.add(parentContext.params, 'scene', parentContext.allScenes).name('Example Scene').onChange(reload);
+
+   // Add upload button
+   let uploadButton = {
+    upload: function() {
+      let input = document.createElement('input');
+      input.type = 'file';
+      input.multiple = true;
+      input.accept = '.xml,.obj,.stl';
+      input.onchange = async function(event) {
+        let files = event.target.files;
+        let xmlFile = null;
+        let meshFiles = [];
+        let newSceneName = '';
+
+        for (let file of files) {
+          if (file.name.endsWith('.xml')) {
+            xmlFile = file;
+            newSceneName = file.name.split('.')[0];
+          } else {
+            meshFiles.push(file);
+          }
+        }
+
+        if (!xmlFile) {
+          alert('Please include an XML file.');
+          return;
+        }
+
+        // Create 'working' directory if it doesn't exist
+        if (!parentContext.mujoco.FS.analyzePath('/working').exists) {
+          parentContext.mujoco.FS.mkdir('/working');
+        }
+
+        // Write XML file
+        let xmlContent = await xmlFile.arrayBuffer();
+        parentContext.mujoco.FS.writeFile(`/working/${xmlFile.name}`, new Uint8Array(xmlContent));
+
+        // Write mesh files
+        for (let meshFile of meshFiles) {
+          let meshContent = await meshFile.arrayBuffer();
+          parentContext.mujoco.FS.writeFile(`/working/${meshFile.name}`, new Uint8Array(meshContent));
+        }
+
+        // Update scene dropdown
+        parentContext.allScenes[newSceneName] = xmlFile.name;
+        updateSceneDropdown(sceneDropdown, parentContext.allScenes);
+
+        parentContext.params.scene = xmlFile.name;
+        sceneDropdown.updateDisplay();
+
+        console.log(`Uploaded ${xmlFile.name} and ${meshFiles.length} mesh file(s)`);
+        // alert(`Uploaded ${xmlFile.name} and ${meshFiles.length} mesh file(s)`);
+
+
+        // Trigger a reload of the scene
+        reload();
+      };
+      input.click();
+    }
+  };
+
+  parentContext.gui.add(uploadButton, 'upload').name('Upload Scene');
+
+  
+  function updateSceneDropdown(dropdown, scenes) {
+    // Store the current onChange function
+    let onChangeFunc = dropdown.__onChange;
+
+    // Remove all options
+    if (dropdown.__select && dropdown.__select.options) {
+      dropdown.__select.options.length = 0;
+    }
+
+    console.log(scenes)
+    dropdown.__select = document.createElement('select');
+
+    // Add new options
+    for (let [name, file] of Object.entries(scenes)) {
+      let option = document.createElement('option');
+      option.text = name;
+      option.value = file;
+      dropdown.__select.add(option);
+    }
+
+    // Restore the onChange function
+    dropdown.__onChange = onChangeFunc;
+  }
+
+  // function updateSceneDropdown(dropdown, scenes) {
+  //   // Remove all options from the underlying select element
+  //   if (dropdown.__select && dropdown.__select.options) {
+  //     dropdown.__select.options.length = 0;
+  //   }
+  //   console.log("scenes", scenes)
+  
+  //   // Update the dropdown's __select property
+  //   dropdown.__select = document.createElement('select');
+  
+  //   // Add new options
+  //   for (let [name, file] of Object.entries(scenes)) {
+  //     let option = document.createElement('option');
+  //     option.text = name;
+  //     option.value = file;
+  //     dropdown.__select.add(option);
+  //   }
+  
+  //   // Update the controller's object and property
+  //   dropdown.object = scenes;
+  //   dropdown.property = 'scene';
+  
+  //   // Rebuild the DOM elements
+  //   dropdown.domElement.removeChild(dropdown.domElement.childNodes[0]);
+  //   dropdown.domElement.appendChild(dropdown.__select);
+  
+  //   // Update the display
+  //   dropdown.updateDisplay();
+  //   dropdown.onChange(reload);
+  // }
 
   // Add a help menu.
   // Parameters:

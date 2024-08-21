@@ -1,0 +1,65 @@
+<mujoco>
+    <visual>
+        <headlight ambient="0 0 0" diffuse="1 1 1" specular="0 0 0" active="0"/>
+        <quality shadowsize="8192"/>
+        <map fogstart="0" fogend="0" haze="0"/>
+    </visual>
+    
+    <asset>
+        <!-- Warehouse textures -->
+        <texture type="2d" name="T_WhitePaint_A1_Albedo" file="empty_warehouse/T_WhitePaint_A1_Albedo.png"/>
+        <material name="WhitePaint_A" texture="T_WhitePaint_A1_Albedo" specular="0.5" shininess="0.5"/>
+        <mesh file="empty_warehouse/warehouse_walls.obj" scale=".01 .01 .01"/>
+        <texture type="2d" name="T_WhitePaint_B1_Albedo" file="empty_warehouse/T_WhitePaint_B1_Albedo.png"/>
+        <material name="WhitePaint_B" texture="T_WhitePaint_B1_Albedo" specular="0.5" shininess="0.5"/>
+        <mesh file="empty_warehouse/warehouse_frame.obj" scale=".01 .01 .01"/>
+
+        <!-- Pallet texture -->
+        <texture name="pallet_1" file="pallet_1.png" type="2d"/>
+        <material name="pallet_1" texture="pallet_1"/>
+        <mesh file="pallet_1.obj" scale=".01 .01 .01"/>
+
+        <!-- Large shelf texture -->
+        <texture name="shelf_large" file="shelf_large.png" type="2d"/>
+        <material name="shelf_large" texture="shelf_large"/>
+        <mesh file="shelf_large.obj" scale=".01 .01 .01"/>
+
+        <!-- Floor texture -->
+        <texture name="floor_tex" file="floor.png" type="2d"/>
+        <material name="floor" texture="floor_tex" specular="0.5" shininess="0.5"/>
+    </asset>
+    
+    
+    <option gravity="0 0 -9.81"/>
+    <worldbody>
+        <!-- World setup -->
+        <light diffuse="1 1 1" pos="0 0 100" dir="0 0 -1"/>
+        <camera fovy="30"/>
+        <geom type="plane" material="floor" size="5 5 0.01"/>
+
+        <!-- Warehouse object -->
+        <body name="empty_warehouse">
+            <geom type="mesh" mesh="warehouse_walls" material="WhitePaint_A" pos="0 0 0"/>
+            <geom type="mesh" mesh="warehouse_frame" material="WhitePaint_B" pos="0 0 0"/>
+        </body>
+
+        <!-- Pallet object
+        <body name="pallet" pos="1 1 3">
+            <joint type="free"/>
+            <geom type="mesh" mesh="pallet_1" material="pallet_1" pos="1 1 3"/>
+        </body> -->
+
+        <!-- Shelf object
+        <body name="shelf_large" pos="0 0 0">
+            <joint type="free"/>
+            <geom type="mesh" mesh="shelf_large" material="shelf_large"/>
+        </body>
+
+        <body name="shelf_large_2" pos="-3 0 0">
+            <joint type="free"/>
+            <geom type="mesh" mesh="shelf_large" material="shelf_large"/>
+        </body> -->
+
+    </worldbody>
+
+</mujoco>

@@ -30,18 +30,8 @@ export function setupGUI(parentContext) {
   // Add scene selection dropdown.
   let reload = reloadFunc.bind(parentContext);
   parentContext.gui.add(parentContext.params, 'scene', {
-    "Humanoid": "humanoid.xml", 
-    //"Brax Humanoid": "brax_humanoid.xml", 
-    //"Brax Humanoid Standup": "brax_humanoidstandup.xml", 
-    //"Dora": "dora/dora2.xml", 
-    //"Hammock": "hammock.xml",
+    "Humanoid": "humanoid.xml",
     "Warehouse": "warehouse-env.xml",
-    //"Empty Warehouse": "empty_warehouse/empty_warehouse.xml",
-    //"Mug": "mug.xml",
-    // "Stompy Legs": "stompy/legs.xml",
-    // "Cassie": "agility_cassie/scene.xml",
-    // "Hammock": "hammock.xml", "Balloons": "balloons.xml", "Hand": "shadow_hand/scene_right.xml",
-    // "Flag": "flag.xml", "Mug": "mug.xml", "Tendon": "model_with_tendon.xml"
   }).name('Example Scene').onChange(reload);
 
   // Add a help menu.
@@ -577,13 +567,6 @@ export async function loadSceneFromURL(mujoco, filename, parent) {
  * @param {mujoco} mujoco */
 export async function downloadExampleScenesFolder(mujoco) {
   let allFiles = [
-    "22_humanoids.xml",
-    "adhesion.xml",
-    "arm26.xml",
-    "balloons.xml",
-    "brax_humanoid.xml",
-    "brax_humanoidstandup.xml",
-    "ceiling.png",
     "dora/dora2.xml",
     "dora/dora2_terrain.xml",
     "dora/meshes/base_link.STL",
@@ -608,28 +591,20 @@ export async function downloadExampleScenesFolder(mujoco) {
     "dora/meshes/r_leg_hip_yaw_Link.STL",
     "dora/meshes/r_leg_knee_Link.STL",
     "dora/terrain/uneven.png",
-    "empty_warehouse/empty_warehouse.xml",
+    "empty_warehouse/floor.png",
     "empty_warehouse/material.mtl",
+    "empty_warehouse/pallet_1.obj",
+    "empty_warehouse/pallet_1.png",
+    "empty_warehouse/shelf_large.obj",
+    "empty_warehouse/shelf_large.png",
     "empty_warehouse/T_WhitePaint_A1_Albedo.png",
     "empty_warehouse/T_WhitePaint_B1_Albedo.png",
     "empty_warehouse/warehouse_frame.obj",
     "empty_warehouse/warehouse_walls.obj",
-    "flag.xml",
-    "floor.png",
-    "hammock.xml",
     "humanoid.xml",
-    "humanoid_body.xml",
-    "model_with_tendon.xml",
-    "mug.obj",
-    "mug.png",
-    "mug.xml",
-    "pallet_1.obj",
-    "pallet_1.png",
     "scene.xml",
-    "shelf_large.obj",
-    "shelf_large.png",
-    "simple.xml",
     "slider_crank.xml",
+    "warehouse-env.urdf",
     "warehouse-env.xml",
   ];
 

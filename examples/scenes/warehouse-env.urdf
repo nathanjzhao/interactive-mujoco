@@ -1,0 +1,112 @@
+<?xml version="1.0"?>
+<robot name="warehouse_robot">
+  
+  <!-- Define the assets, similar to textures and materials in MuJoCo -->
+  <material name="WhitePaint_A">
+    <color rgba="0.8 0.8 0.8 1.0"/>
+  </material>
+  
+  <material name="WhitePaint_B">
+    <color rgba="0.9 0.9 0.9 1.0"/>
+  </material>
+
+  <material name="pallet_1">
+    <color rgba="0.6 0.4 0.2 1.0"/>
+  </material>
+
+  <material name="shelf_large">
+    <color rgba="0.5 0.5 0.5 1.0"/>
+  </material>
+
+  <material name="floor">
+    <color rgba="0.3 0.3 0.3 1.0"/>
+  </material>
+  
+  <!-- World body -->
+  <link name="world">
+    
+    <!-- Floor -->
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry>
+        <box size="10 10 0.01"/>
+      </geometry>
+      <material name="floor"/>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry>
+        <box size="10 10 0.01"/>
+      </geometry>
+    </collision>
+  </link>
+
+  <!-- Warehouse Walls -->
+  <link name="warehouse_walls">
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry>
+        <mesh filename="empty_warehouse/warehouse_walls.obj" scale="0.01 0.01 0.01"/>
+      </geometry>
+      <material name="WhitePaint_A"/>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry>
+        <mesh filename="empty_warehouse/warehouse_walls.obj" scale="0.01 0.01 0.01"/>
+      </geometry>
+    </collision>
+  </link>
+
+  <!-- Warehouse Frame -->
+  <link name="warehouse_frame">
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry>
+        <mesh filename="empty_warehouse/warehouse_frame.obj" scale="0.01 0.01 0.01"/>
+      </geometry>
+      <material name="WhitePaint_B"/>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry>
+        <mesh filename="empty_warehouse/warehouse_frame.obj" scale="0.01 0.01 0.01"/>
+      </geometry>
+    </collision>
+  </link>
+  
+  <!-- Pallet -->
+  <link name="pallet_1">
+    <visual>
+      <origin xyz="1 1 0" rpy="0 0 0"/>
+      <geometry>
+        <mesh filename="empty_warehouse/pallet_1.obj" scale="0.01 0.01 0.01"/>
+      </geometry>
+      <material name="pallet_1"/>
+    </visual>
+    <collision>
+      <origin xyz="1 1 0" rpy="0 0 0"/>
+      <geometry>
+        <mesh filename="empty_warehouse/pallet_1.obj" scale="0.01 0.01 0.01"/>
+      </geometry>
+    </collision>
+  </link>
+
+  <!-- Shelf Large -->
+  <link name="shelf_large">
+    <visual>
+      <origin xyz="-1 -1 0" rpy="0 0 0"/>
+      <geometry>
+        <mesh filename="empty_warehouse/shelf_large.obj" scale="0.01 0.01 0.01"/>
+      </geometry>
+      <material name="shelf_large"/>
+    </visual>
+    <collision>
+      <origin xyz="-1 -1 0" rpy="0 0 0"/>
+      <geometry>
+        <mesh filename="empty_warehouse/shelf_large.obj" scale="0.01 0.01 0.01"/>
+      </geometry>
+    </collision>
+  </link>
+
+</robot>

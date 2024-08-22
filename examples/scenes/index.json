@@ -28,12 +28,17 @@
   "empty_warehouse/floor.png",
   "empty_warehouse/pallet_1.obj",
   "empty_warehouse/pallet_1.png",
+  "empty_warehouse/pallet_1_simple.obj",
   "empty_warehouse/shelf_large.obj",
   "empty_warehouse/shelf_large.png",
+  "empty_warehouse/shelf_large_simple.obj",
   "empty_warehouse/warehouse_frame.obj",
+  "empty_warehouse/warehouse_frame_simple.obj",
   "empty_warehouse/warehouse_walls.obj",
+  "empty_warehouse/warehouse_walls_simple.obj",
   "humanoid.xml",
   "scene.xml",
+  "simplified.xml",
   "slider_crank.xml",
   "warehouse-env.xml"
 ]

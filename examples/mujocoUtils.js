@@ -32,6 +32,7 @@ export function setupGUI(parentContext) {
   parentContext.gui.add(parentContext.params, 'scene', {
     "Humanoid": "humanoid.xml",
     "Warehouse": "warehouse-env.xml",
+    "Simplified": "simplified.xml",
   }).name('Example Scene').onChange(reload);
 
   // Add a help menu.
@@ -601,6 +602,10 @@ export async function downloadExampleScenesFolder(mujoco) {
     "empty_warehouse/T_WhitePaint_B1_Albedo.png",
     "empty_warehouse/warehouse_frame.obj",
     "empty_warehouse/warehouse_walls.obj",
+    "empty_warehouse/pallet_1_simple.obj",
+    "empty_warehouse/shelf_large_simple.obj",
+    "empty_warehouse/warehouse_frame_simple.obj",
+    "empty_warehouse/warehouse_walls_simple.obj",
     "humanoid.xml",
     "scene.xml",
     "slider_crank.xml",

@@ -11,6 +11,7 @@
         <meta name="theme-color"        content="#ffffff">
         <link rel ="icon" type="image/x-icon" href="./examples/favicon.png">
         <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@3.11.0/dist/tf.min.js"></script>
+        
     </head>
 
     <body style="margin:0px; background-color:rgb(255, 255, 255); overflow:hidden; position:fixed; min-height: 100%;
@@ -28,7 +29,14 @@
 
         <!-- Allows three.js Examples to work without building -->
         <script type="importmap">
-            { "imports": { "three": "./node_modules/three/build/three.module.js", "three/addons/": "./node_modules/three/examples/jsm/"} }
+            { 
+                "imports": 
+                    { 
+                    "three": "./node_modules/three/build/three.module.js",
+                    "three/addons/": "./node_modules/three/examples/jsm/",
+                    "three-ik": "https://cdn.jsdelivr.net/npm/three-ik@0.1.0/build/three-ik.module.js"
+                } 
+            }
         </script>
 
         <div id="appbody" style="position: absolute;">

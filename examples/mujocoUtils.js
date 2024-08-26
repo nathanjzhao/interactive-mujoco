@@ -511,6 +511,7 @@ export async function loadSceneFromURL(mujoco, filename, parent) {
       } else if (type == mujoco.mjtGeom.mjGEOM_SPHERE.value) {
         geometry = new THREE.SphereGeometry(size[0]);
       } else if (type == mujoco.mjtGeom.mjGEOM_CAPSULE.value) {
+        // imported capsule geometry
         geometry = new THREE.CapsuleGeometry(size[0], size[1] * 2.0, 20, 20);
       } else if (type == mujoco.mjtGeom.mjGEOM_ELLIPSOID.value) {
         geometry = new THREE.SphereGeometry(1); // Stretch this below

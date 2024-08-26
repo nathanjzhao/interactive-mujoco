@@ -5,6 +5,7 @@ import { OrbitControls    } from '../node_modules/three/examples/jsm/controls/Or
 import { DragStateManager } from './utils/DragStateManager.js';
 import { setupGUI, downloadExampleScenesFolder, loadSceneFromURL, getPosition, getQuaternion, toMujocoPos, standardNormal } from './mujocoUtils.js';
 import   load_mujoco        from '../dist/mujoco_wasm.js';
+import { IKSolver } from './IKSolver.js';
 
 // Load the MuJoCo Module
 const mujoco = await load_mujoco();
@@ -68,9 +69,28 @@ export class MuJoCoDemo {
     this.controls.screenSpacePanning = true;
     this.controls.update();
 
+    // User actuator/model direct control
     this.actuatorNames = [];
     this.actuatorRanges = [];
     this.loadPPOModel();
+
+    // IKA
+    console.log('Initializing IK Solver');
+    this.ikSolver = new IKSolver(this.model);
+    console.log('IK Solver initialized');
+    this.endEffectors = {
+      'right_hand': { chain: ['right_shoulder', 'right_elbow', 'right_wrist'] },
+      'left_hand': { chain: ['left_shoulder', 'left_elbow', 'left_wrist'] },
+      // Add more end effectors as needed
+    };
+    this.bodyNameToId = this.createBodyNameToIdMap();
+
+    console.log('Initializing IK Chains');
+    // Initialize IK chains
+    for (const [effector, data] of Object.entries(this.endEffectors)) {
+      this.ikSolver.createChain(effector, data.chain);
+    }
+    console.log('Initializing IK Solver');
 
     window.addEventListener('resize', this.onWindowResize.bind(this));
 
@@ -93,6 +113,69 @@ export class MuJoCoDemo {
     // this.initializeActuators();
   }
 
+  /* IKA */
+  createBodyNameToIdMap() {
+    const map = {};
+    const textDecoder = new TextDecoder();
+    for (let i = 0; i < this.model.nbody; i++) {
+      const name = textDecoder.decode(
+        this.model.names.subarray(
+          this.model.name_bodyadr[i]
+        )
+      ).split('\0')[0];
+      map[name] = i;
+    }
+    return map;
+  }
+
+  getBodyIdByName(name) {
+    return this.bodyNameToId[name];
+  }
+
+  handleDrag(bodyName, targetPosition) {
+    if (this.endEffectors[bodyName]) {
+      const chain = this.endEffectors[bodyName].chain;
+      const currentJointPositions = this.getCurrentJointPositions(chain);
+      const newJointRotations = this.ikSolver.solve(bodyName, currentJointPositions, targetPosition);
+      this.applyJointRotations(chain, newJointRotations);
+    }
+  }
+
+  getCurrentJointPositions(chain) {
+    return chain.map(bodyName => {
+      const bodyId = this.getBodyIdByName(bodyName);
+      return new THREE.Vector3().fromArray(this.simulation.xpos.subarray(bodyId * 3, bodyId * 3 + 3));
+    });
+  }
+
+  applyJointRotations(chain, rotations) {
+    chain.forEach((bodyName, i) => {
+      const bodyId = this.getBodyIdByName(bodyName);
+      const jointId = this.model.body_jntadr[bodyId];
+      const qposAddr = this.model.jnt_qposadr[jointId];
+      
+      // Apply rotation to qpos
+      // This assumes that the joint is a ball joint with 3 DoF
+      // You may need to adjust this based on your specific joint types
+      this.simulation.qpos[qposAddr] = rotations[i][0];
+      this.simulation.qpos[qposAddr + 1] = rotations[i][1];
+      this.simulation.qpos[qposAddr + 2] = rotations[i][2];
+    });
+
+    // Update forward kinematics
+    this.simulation.forward();
+  }
+
+  getBodyNameById(bodyId) {
+    const textDecoder = new TextDecoder();
+    return textDecoder.decode(
+      this.model.names.subarray(
+        this.model.name_bodyadr[bodyId]
+      )
+    ).split('\0')[0];
+  }
+
+  /* User actuator/model direct control */
   // does this ordering align with the ordering of the model output?
   initializeActuators() {
     const textDecoder = new TextDecoder();

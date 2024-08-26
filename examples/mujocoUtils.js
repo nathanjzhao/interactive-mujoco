@@ -10,6 +10,24 @@ export async function reloadFunc() {
 
   // console.log(this.model, this.state, this.simulation, this.bodies, this.lights);
 
+  // this.model.setOption("integrator", mujoco.INTEGRATOR_IMPLICIT);
+  // this.model.setOption("dt", 0.002);  // Same as timestep in XML
+  // this.model.setOption("iterations", 50);
+  // this.model.setOption("solver", mujoco.SOLVER_NEWTON);
+  // this.model.setOption("tolerance", 1e-10);
+  // this.model.setOption("impratio", 1);
+  // this.model.setOption("noslip_iterations", 5);
+  // this.model.setOption("noslip_tolerance", 1e-6);
+  // this.model.setOption("mpr_iterations", 50);
+  // this.model.setOption("mpr_tolerance", 1e-6);
+  // this.model.setOption("apirate", 1);
+  // this.model.setOption("cone", mujoco.CONE_ELLIPTIC);
+  // this.model.setOption("jacobian", mujoco.JACOBIAN_DENSE);
+  // this.model.setOption("collision", mujoco.COLLISION_ALL);
+
+  // Initialize originalQpos with zeros
+  this.originalQpos = new Float64Array(this.simulation.qpos.length);
+
   this.simulation.forward();
   for (let i = 0; i < this.updateGUICallbacks.length; i++) {
     this.updateGUICallbacks[i](this.model, this.simulation, this.params);
@@ -33,7 +51,7 @@ export function setupGUI(parentContext) {
     "Brax Humanoid": "brax_humanoid.xml",
     "Brax Humanoid Standup": "brax_humanoidstandup.xml", 
     "Dora": "dora/dora2.xml", 
-    "Hammock": "hammock.xml",
+    "Dora With Collisions": "dora/my_dora2.xml"
   };
     
   // Add scene selection dropdown.
@@ -302,7 +320,7 @@ export function setupGUI(parentContext) {
   //  Can also be triggered by pressing ctrl + L.
   simulationFolder.add({reload: () => { reload(); }}, 'reload').name('Reload');
   document.addEventListener('keydown', (event) => {
-    if (event.ctrlKey && event.code === 'KeyL') { reload();  event.preventDefault(); }});
+    if (event.ctrlKey && event.code === 'KeyL') { reload(); event.preventDefault(); }});
   actionInnerHTML += 'Reload XML<br>';
   keyInnerHTML += 'Ctrl L<br>';
 
@@ -364,7 +382,7 @@ export function setupGUI(parentContext) {
       let actuatorGUI = actuatorFolder.add(parentContext.params, name, act_range[2 * i], act_range[2 * i + 1], 0.01).name(name).listen();
       actuatorGUIs.push(actuatorGUI);
       actuatorGUI.onChange((value) => {
-        console.log("value", value)
+        // console.log("value", value)
         simulation.ctrl[i] = value;
       });
     }
@@ -698,6 +716,7 @@ export async function downloadExampleScenesFolder(mujoco) {
     "brax_humanoid.xml",
     "brax_humanoidstandup.xml",
     "dora/dora2.xml",
+    "dora/my_dora2.xml",
     "dora/dora2_terrain.xml",
     "dora/meshes/base_link.STL",
     "dora/meshes/l_arm_elbow_Link.STL",
@@ -731,7 +750,7 @@ export async function downloadExampleScenesFolder(mujoco) {
     "mug.xml",
     "scene.xml",
     "simple.xml",
-    "slider_crank.xml",
+    "slider_crank.xml"
   ];
 
   let requests = allFiles.map((url) => fetch("./examples/scenes/" + url));

@@ -237,6 +237,13 @@ export class MuJoCoDemo {
 
     if (!this.params["paused"]) {
 
+      // Update originalQpos when unpaused
+      if (!this.originalQpos || this.originalQpos.length !== this.simulation.qpos.length) {
+        this.originalQpos = new Float64Array(this.simulation.qpos);
+      } else {
+        this.originalQpos.set(this.simulation.qpos);
+      }
+
       if (this.ppo_model && this.params["useModel"]) { 
         const observationArray = this.getObservation();
         const inputTensor = tf.tensor2d([observationArray]);
@@ -310,8 +317,60 @@ export class MuJoCoDemo {
 
         this.mujoco_time += timestep * 1000.0;
       }
-
     } else if (this.params["paused"]) {
+
+      const originalQpos = this.originalQpos || new Float64Array(this.simulation.qpos);
+      const timestep = this.model.getOptions().timestep;
+
+      // Apply changes based on control inputs
+      for (let i = 0; i < this.actuatorNames.length; i++) {
+        const actuatorName = this.actuatorNames[i];
+        const jointIndex = this.model.actuator_trnid[2 * i];
+        const jointAddress = this.model.jnt_qposadr[jointIndex];
+
+        // figure out how this physics simulator works
+        let inv_mass = 1 / timestep; // Default value
+        let damping = 0.1; // Default value
+
+        if (this.model.dof_invweight0 && this.model.dof_invweight0[jointAddress] !== undefined) {
+          inv_mass = this.model.dof_invweight0[jointAddress];
+        }
+
+        if (this.model.dof_damping && this.model.dof_damping[jointAddress] !== undefined) {
+          damping = this.model.dof_damping[jointAddress];
+        }
+        
+        // Calculate torque from control input
+        const torqueDiff = this.params[actuatorName];
+        
+        
+        // Calculate joint velocity
+        let jointVelocity = 0.01;
+        if (originalQpos[jointAddress]) {
+          const positionDiff = this.simulation.qpos[jointAddress] - originalQpos[jointAddress];
+          jointVelocity = positionDiff / timestep;
+          
+          // Handle potential NaN or Infinity
+          if (!isFinite(jointVelocity)) {
+            jointVelocity = 0;
+            console.warn(`Invalid velocity calculated for joint ${jointAddress}. Using 0.`);
+          }
+        }
+
+        // Calculate target deviation
+        const targetDeviation = (torqueDiff * inv_mass - damping * jointVelocity) * timestep;
+        
+        // Calculate current deviation
+        const currentDeviation = this.simulation.qpos[jointAddress] - originalQpos[jointAddress];
+        
+        // Gradually move towards target deviation
+        const step = 0.1; // Adjust for faster or slower response
+        const newDeviation = currentDeviation + (targetDeviation - currentDeviation) * step;
+        
+        // Apply the new deviation
+        this.simulation.qpos[jointAddress] = originalQpos[jointAddress] + newDeviation;
+      }
+
       // updates states from dragging
       this.dragStateManager.update(); // Update the world-space force origin
       let dragged = this.dragStateManager.physicsObject;

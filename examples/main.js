@@ -1,4 +1,3 @@
-
 import * as THREE           from 'three';
 import { GUI              } from '../node_modules/three/examples/jsm/libs/lil-gui.module.min.js';
 import { OrbitControls    } from '../node_modules/three/examples/jsm/controls/OrbitControls.js';
@@ -72,6 +71,14 @@ export class MuJoCoDemo {
     this.actuatorRanges = [];
     this.loadPPOModel();
 
+    this.ikTarget = new THREE.Vector3();
+    this.ikEnabled = false;
+    this.ikJoints = ['shoulder1_left', 'shoulder2_left', 'elbow_left'];
+    this.ikEndEffector = 'hand_left';
+
+    this.bodyNameToId = this.createBodyNameToIdMap();
+    this.actuatorNameToId = this.createActuatorNameToIdMap();
+
     window.addEventListener('resize', this.onWindowResize.bind(this));
 
     // Initialize the Drag State Manager.
@@ -86,6 +93,7 @@ export class MuJoCoDemo {
     // Initialize the three.js Scene using the .xml Model in initialScene
     [this.model, this.state, this.simulation, this.bodies, this.lights] =  
       await loadSceneFromURL(mujoco, initialScene, this);
+
 
     this.gui = new GUI();
     setupGUI(this);
@@ -210,8 +218,199 @@ export class MuJoCoDemo {
       case 'j':
         this.moveActuator('elbow_', -stepSize);
         break;
+      case 'i':
+        this.toggleIK();
+        break;
     }
   }
+
+  toggleIK() {
+    this.ikEnabled = !this.ikEnabled;
+    console.log(`IK ${this.ikEnabled ? 'enabled' : 'disabled'}`);
+  }
+
+  solveIK(id) {
+    if (!this.ikEnabled) return;
+  
+    const bodyName = this.getBodyNameById(id);
+    if (bodyName !== this.ikEndEffector) {
+      console.error(`Body "${bodyName}" is not an end effector`);
+      return;
+    }
+  
+    const endEffectorBody = this.bodies[id];
+    if (!endEffectorBody) {
+      console.error(`End effector body "${this.ikEndEffector}" not found`);
+      return;
+    }
+  
+    const targetPosition = this.ikTarget;
+    const maxIterations = 10;
+    const epsilon = 0.01;
+  
+    console.log(`IK Target: ${targetPosition.toArray()}`);
+  
+    for (let iteration = 0; iteration < maxIterations; iteration++) {
+      const currentPosition = new THREE.Vector3();
+      getPosition(this.simulation.xpos, this.getBodyIdByName(this.ikEndEffector), currentPosition);
+      const error = targetPosition.clone().sub(currentPosition);
+  
+      console.log(`Iteration ${iteration}:`);
+      console.log(`  Current Position: ${currentPosition.toArray()}`);
+      console.log(`  Error: ${error.toArray()} (magnitude: ${error.length()})`);
+  
+      if (error.length() < epsilon) {
+        console.log('Target reached, stopping IK');
+        break;
+      }
+  
+      for (const jointName of this.ikJoints) {
+        const jointId = this.getJointIdByName(jointName);
+        if (jointId === -1) {
+          console.warn(`Joint ${jointName} not found`);
+          continue;
+        }
+  
+        const jacobian = this.calculateJacobian(jointId);
+  
+        if (jacobian.lengthSq() < 1e-10) {
+          console.warn(`Near-zero Jacobian for joint ${jointName}, skipping`);
+          continue;
+        }
+  
+        const delta = error.dot(jacobian) / jacobian.lengthSq();
+        console.log(`  Joint ${jointName}:`);
+        console.log(`    Jacobian: ${jacobian.toArray()}`);
+        console.log(`    Delta: ${delta}`);
+  
+        // Limit the maximum change in joint position
+        const maxDelta = 0.1;
+        const clampedDelta = Math.max(-maxDelta, Math.min(maxDelta, delta));
+  
+        const jointQposAdr = this.model.jnt_qposadr[jointId];
+        this.simulation.qpos[jointQposAdr] += clampedDelta;
+        
+        console.log(`    New joint position: ${this.simulation.qpos[jointQposAdr]}`);
+      }
+  
+      this.simulation.forward();
+    }
+  }
+  
+
+  calculateJacobian(jointId) {
+    const epsilon = 0.001;
+    const jacobian = new THREE.Vector3();
+  
+    const endEffectorBodyId = this.getBodyIdByName(this.ikEndEffector);
+    if (endEffectorBodyId === undefined) {
+      console.error(`End effector body "${this.ikEndEffector}" not found`);
+      return jacobian;
+    }
+  
+    // Get the joint's qpos address
+    const jointQposAdr = this.model.jnt_qposadr[jointId];
+    const originalValue = this.simulation.qpos[jointQposAdr];
+  
+    const originalPos = new THREE.Vector3();
+    getPosition(this.simulation.xpos, endEffectorBodyId, originalPos);
+  
+    // Positive perturbation
+    this.simulation.qpos[jointQposAdr] = originalValue + epsilon;
+    this.simulation.forward();
+    const posPos = new THREE.Vector3();
+    getPosition(this.simulation.xpos, endEffectorBodyId, posPos);
+  
+    // Negative perturbation
+    this.simulation.qpos[jointQposAdr] = originalValue - epsilon;
+    this.simulation.forward();
+    const posNeg = new THREE.Vector3();
+    getPosition(this.simulation.xpos, endEffectorBodyId, posNeg);
+  
+    // Calculate Jacobian column using central difference
+    jacobian.x = (posPos.x - posNeg.x) / (2 * epsilon);
+    jacobian.y = (posPos.y - posNeg.y) / (2 * epsilon);
+    jacobian.z = (posPos.z - posNeg.z) / (2 * epsilon);
+  
+    // Restore original state
+    this.simulation.qpos[jointQposAdr] = originalValue;
+    this.simulation.forward();
+  
+    console.log(`Joint ${this.actuatorNames[jointId]}:`);
+    console.log(`  Original position: ${originalPos.toArray()}`);
+    console.log(`  Positive perturbation: ${posPos.toArray()}`);
+    console.log(`  Negative perturbation: ${posNeg.toArray()}`);
+    console.log(`  Jacobian: ${jacobian.toArray()}`);
+  
+    return jacobian;
+  }
+
+  /* MAPPINGs */
+
+  getJointIdByName(name) {
+    for (let i = 0; i < this.model.njnt; i++) {
+      const jointName = this.getJointName(i);
+      if (jointName === name) {
+        return i;
+      }
+    }
+    return -1;
+  }
+  
+  getJointName(jointId) {
+    const textDecoder = new TextDecoder();
+    return textDecoder.decode(
+      this.model.names.subarray(
+        this.model.name_jntadr[jointId]
+      )
+    ).split('\0')[0];
+  }
+
+  createBodyNameToIdMap() {
+    const map = {};
+    const textDecoder = new TextDecoder();
+    for (let i = 0; i < this.model.nbody; i++) {
+      const name = textDecoder.decode(
+        this.model.names.subarray(
+          this.model.name_bodyadr[i]
+        )
+      ).split('\0')[0];
+      map[name] = i;
+    }
+    return map;
+  }
+
+  getBodyNameById(bodyId) {
+    const textDecoder = new TextDecoder();
+    return textDecoder.decode(
+      this.model.names.subarray(
+        this.model.name_bodyadr[bodyId]
+      )
+    ).split('\0')[0];
+  }
+
+  getBodyIdByName(name) {
+    return this.bodyNameToId[name];
+  }
+
+  createActuatorNameToIdMap() {
+    const map = {};
+    const textDecoder = new TextDecoder();
+    for (let i = 0; i < this.model.nu; i++) {
+      const name = textDecoder.decode(
+        this.model.names.subarray(
+          this.model.name_actuatoradr[i]
+        )
+      ).split('\0')[0];
+      map[name] = i;
+    }
+    return map;
+  }
+
+  getActuatorIdByName(name) {
+    return this.actuatorNameToId[name] !== undefined ? this.actuatorNameToId[name] : -1;
+  }
+
 
   moveActuator(prefix, amount) {
     for (let i = 0; i < this.actuatorNames.length; i++) {
@@ -319,6 +518,43 @@ export class MuJoCoDemo {
       }
     } else if (this.params["paused"]) {
 
+      this.dragStateManager.update(); // Update the world-space force origin
+      if (this.ikEnabled) {
+        let dragged = this.dragStateManager.physicsObject;
+        if (dragged && dragged.bodyID) {
+          this.ikTarget.copy(this.dragStateManager.currentWorld);
+          this.solveIK(dragged.bodyID);
+        }
+      } else {
+        // updates states from dragging
+        let dragged = this.dragStateManager.physicsObject;
+        if (dragged && dragged.bodyID) {
+          let b = dragged.bodyID;
+          getPosition  (this.simulation.xpos , b, this.tmpVec , false); // Get raw coordinate from MuJoCo
+          getQuaternion(this.simulation.xquat, b, this.tmpQuat, false); // Get raw coordinate from MuJoCo
+
+          let offset = toMujocoPos(this.dragStateManager.currentWorld.clone()
+            .sub(this.dragStateManager.worldHit).multiplyScalar(0.3));
+          if (this.model.body_mocapid[b] >= 0) {
+            // Set the root body's mocap position...
+            console.log("Trying to move mocap body", b);
+            let addr = this.model.body_mocapid[b] * 3;
+            let pos  = this.simulation.mocap_pos;
+            pos[addr+0] += offset.x;
+            pos[addr+1] += offset.y;
+            pos[addr+2] += offset.z;
+          } else {
+            // Set the root body's position directly...
+            let root = this.model.body_rootid[b];
+            let addr = this.model.jnt_qposadr[this.model.body_jntadr[root]];
+            let pos  = this.simulation.qpos;
+            pos[addr+0] += offset.x;
+            pos[addr+1] += offset.y;
+            pos[addr+2] += offset.z;
+          }
+        }
+      }
+
       const originalQpos = this.originalQpos || new Float64Array(this.simulation.qpos);
       const timestep = this.model.getOptions().timestep;
 
@@ -369,67 +605,6 @@ export class MuJoCoDemo {
         
         // Apply the new deviation
         this.simulation.qpos[jointAddress] = originalQpos[jointAddress] + newDeviation;
-      }
-
-      // updates states from dragging
-      this.dragStateManager.update(); // Update the world-space force origin
-      let dragged = this.dragStateManager.physicsObject;
-      if (dragged && dragged.bodyID) {
-        let b = dragged.bodyID;
-        getPosition  (this.simulation.xpos , b, this.tmpVec , false); // Get raw coordinate from MuJoCo
-        getQuaternion(this.simulation.xquat, b, this.tmpQuat, false); // Get raw coordinate from MuJoCo
-
-        let offset = toMujocoPos(this.dragStateManager.currentWorld.clone()
-          .sub(this.dragStateManager.worldHit).multiplyScalar(0.3));
-        if (this.model.body_mocapid[b] >= 0) {
-          // Set the root body's mocap position...
-          console.log("Trying to move mocap body", b);
-          let addr = this.model.body_mocapid[b] * 3;
-          let pos  = this.simulation.mocap_pos;
-          pos[addr+0] += offset.x;
-          pos[addr+1] += offset.y;
-          pos[addr+2] += offset.z;
-        } else {
-          // Set the root body's position directly...
-          let root = this.model.body_rootid[b];
-          let addr = this.model.jnt_qposadr[this.model.body_jntadr[root]];
-          let pos  = this.simulation.qpos;
-          pos[addr+0] += offset.x;
-          pos[addr+1] += offset.y;
-          pos[addr+2] += offset.z;
-
-          //// Save the original root body position
-          //let x  = pos[addr + 0], y  = pos[addr + 1], z  = pos[addr + 2];
-          //let xq = pos[addr + 3], yq = pos[addr + 4], zq = pos[addr + 5], wq = pos[addr + 6];
-
-          //// Clear old perturbations, apply new ones.
-          //for (let i = 0; i < this.simulation.qfrc_applied().length; i++) { this.simulation.qfrc_applied()[i] = 0.0; }
-          //for (let bi = 0; bi < this.model.nbody(); bi++) {
-          //  if (this.bodies[b]) {
-          //    getPosition  (this.simulation.xpos (), bi, this.bodies[bi].position);
-          //    getQuaternion(this.simulation.xquat(), bi, this.bodies[bi].quaternion);
-          //    this.bodies[bi].updateWorldMatrix();
-          //  }
-          //}
-          ////dragStateManager.update(); // Update the world-space force origin
-          //let force = toMujocoPos(this.dragStateManager.currentWorld.clone()
-          //  .sub(this.dragStateManager.worldHit).multiplyScalar(this.model.body_mass()[b] * 0.01));
-          //let point = toMujocoPos(this.dragStateManager.worldHit.clone());
-          //// This force is dumped into xrfc_applied
-          //this.simulation.applyForce(force.x, force.y, force.z, 0, 0, 0, point.x, point.y, point.z, b);
-          //this.simulation.integratePos(this.simulation.qpos(), this.simulation.qfrc_applied(), 1);
-
-          //// Add extra drag to the root body
-          //pos[addr + 0] = x  + (pos[addr + 0] - x ) * 0.1;
-          //pos[addr + 1] = y  + (pos[addr + 1] - y ) * 0.1;
-          //pos[addr + 2] = z  + (pos[addr + 2] - z ) * 0.1;
-          //pos[addr + 3] = xq + (pos[addr + 3] - xq) * 0.1;
-          //pos[addr + 4] = yq + (pos[addr + 4] - yq) * 0.1;
-          //pos[addr + 5] = zq + (pos[addr + 5] - zq) * 0.1;
-          //pos[addr + 6] = wq + (pos[addr + 6] - wq) * 0.1;
-
-
-        }
       }
 
       this.simulation.forward();

@@ -120,6 +120,37 @@ export function setupGUI(parentContext) {
 
   parentContext.gui.add(uploadButton, 'upload').name('Upload Scene');
 
+  // Add a button to download IK control records
+  let downloadButton = {
+    download: function() {
+      // Convert the records to a JSON string
+      const recordsJSON = JSON.stringify(parentContext.ikControlRecords, null, 2);
+
+      // Create a Blob with the JSON data
+      const blob = new Blob([recordsJSON], { type: 'application/json' });
+
+      // Create a temporary URL for the Blob
+      const url = URL.createObjectURL(blob);
+
+      // Create a temporary anchor element and trigger the download
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = 'ik_control_records.json';
+      a.click();
+
+      // Clean up by revoking the URL
+      URL.revokeObjectURL(url);
+
+      // Clear the records after saving
+      parentContext.ikControlRecords = [];
+
+      console.log('IK control records downloaded and cleared');
+    }
+  };
+
+  parentContext.gui.add(downloadButton, 'download').name('Download IK Records');
+
+
   
   function updateSceneDropdown(dropdown, scenes) {
     // Store the current onChange function

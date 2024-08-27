@@ -76,6 +76,9 @@ export class MuJoCoDemo {
     this.ikJoints = ['shoulder1_left', 'shoulder2_left', 'elbow_left'];
     this.ikEndEffector = 'hand_left';
 
+    this.estimateControlForPositionDiff = this.estimateControlForPositionDiff.bind(this);
+    this.ikControlRecords = [];
+
     this.bodyNameToId = this.createBodyNameToIdMap();
     this.actuatorNameToId = this.createActuatorNameToIdMap();
 
@@ -224,8 +227,12 @@ export class MuJoCoDemo {
     }
   }
 
+  /* Inverse Kinematics */
   toggleIK() {
     this.ikEnabled = !this.ikEnabled;
+    if (this.ikEnabled) {
+      this.originalQpos = new Float64Array(this.simulation.qpos);
+    }
     console.log(`IK ${this.ikEnabled ? 'enabled' : 'disabled'}`);
   }
 
@@ -247,6 +254,12 @@ export class MuJoCoDemo {
     const targetPosition = this.ikTarget;
     const maxIterations = 10;
     const epsilon = 0.01;
+    const timeStep = this.model.getOptions().timestep;
+
+    let iterationRecord = {
+      targetPosition: targetPosition.toArray(),
+      joints: {}
+    };
   
     console.log(`IK Target: ${targetPosition.toArray()}`);
   
@@ -254,10 +267,6 @@ export class MuJoCoDemo {
       const currentPosition = new THREE.Vector3();
       getPosition(this.simulation.xpos, this.getBodyIdByName(this.ikEndEffector), currentPosition);
       const error = targetPosition.clone().sub(currentPosition);
-  
-      console.log(`Iteration ${iteration}:`);
-      console.log(`  Current Position: ${currentPosition.toArray()}`);
-      console.log(`  Error: ${error.toArray()} (magnitude: ${error.length()})`);
   
       if (error.length() < epsilon) {
         console.log('Target reached, stopping IK');
@@ -279,24 +288,39 @@ export class MuJoCoDemo {
         }
   
         const delta = error.dot(jacobian) / jacobian.lengthSq();
-        console.log(`  Joint ${jointName}:`);
-        console.log(`    Jacobian: ${jacobian.toArray()}`);
-        console.log(`    Delta: ${delta}`);
   
         // Limit the maximum change in joint position
-        const maxDelta = 0.1;
+        const maxDelta = 0.01;
         const clampedDelta = Math.max(-maxDelta, Math.min(maxDelta, delta));
   
         const jointQposAdr = this.model.jnt_qposadr[jointId];
         this.simulation.qpos[jointQposAdr] += clampedDelta;
         
+
+        // Estimate control for this joint
+        const estimatedControl = this.estimateControlForPositionDiff(jointId, clampedDelta, timeStep);
+        
+        // Record the joint information
+        if (!iterationRecord.joints[jointName]) {
+          iterationRecord.joints[jointName] = [];
+        }
+        iterationRecord.joints[jointName].push({
+          positionChange: clampedDelta,
+          estimatedControl: estimatedControl
+        });
+
         console.log(`    New joint position: ${this.simulation.qpos[jointQposAdr]}`);
       }
   
       this.simulation.forward();
     }
+
+    // Add the iteration record to the overall IK control records
+    this.ikControlRecords.push(iterationRecord);
+
+    // Optionally, you can save the records to a file here or provide a method to do so
+    // this.saveIKControlRecords();
   }
-  
 
   calculateJacobian(jointId) {
     const epsilon = 0.001;
@@ -336,13 +360,36 @@ export class MuJoCoDemo {
     this.simulation.qpos[jointQposAdr] = originalValue;
     this.simulation.forward();
   
-    console.log(`Joint ${this.actuatorNames[jointId]}:`);
-    console.log(`  Original position: ${originalPos.toArray()}`);
-    console.log(`  Positive perturbation: ${posPos.toArray()}`);
-    console.log(`  Negative perturbation: ${posNeg.toArray()}`);
-    console.log(`  Jacobian: ${jacobian.toArray()}`);
-  
     return jacobian;
+  }
+
+
+  estimateControlForPositionDiff(jointIndex, positionDiff, timeStep) {
+    const jointAddress = this.model.jnt_qposadr[jointIndex];
+    
+    // Get inverse mass and damping for the joint
+    let invMass = this.model.dof_invweight0 ? this.model.dof_invweight0[jointAddress] : 1 / timeStep;
+    let damping = this.model.dof_damping ? this.model.dof_damping[jointAddress] : 0.1;
+
+    // Estimate velocity required to achieve position difference
+    const estimatedVelocity = positionDiff / timeStep;
+
+    // Calculate force required to overcome damping and achieve velocity
+    const dampingForce = damping * estimatedVelocity;
+    const accelerationForce = invMass * estimatedVelocity;
+
+    console.log("velocity", estimatedVelocity);
+    console.log("dampingForce", dampingForce);
+    console.log("accelerationForce", accelerationForce);
+
+    // Total force is the sum of damping and acceleration forces
+    const totalForce = dampingForce + accelerationForce;
+
+    // Convert force to control input (assuming control input is proportional to force)
+    const controlScale = 1.0; // Adjust this based on your model's characteristics
+    const estimatedControl = totalForce * controlScale;
+
+    return estimatedControl;
   }
 
   /* MAPPINGs */
@@ -411,6 +458,18 @@ export class MuJoCoDemo {
     return this.actuatorNameToId[name] !== undefined ? this.actuatorNameToId[name] : -1;
   }
 
+  getActuatorNameForJoint(jointName) {
+    // This is a simplification. You might need to adjust this based on your naming conventions
+    for (const actuatorName of this.actuatorNames) {
+      if (actuatorName.includes(jointName)) {
+        return actuatorName;
+      }
+    }
+    return null;
+  }
+
+
+  /* Actuators/Model control*/
 
   moveActuator(prefix, amount) {
     for (let i = 0; i < this.actuatorNames.length; i++) {

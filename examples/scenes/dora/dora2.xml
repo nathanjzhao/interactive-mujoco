@@ -70,7 +70,7 @@
     <light directional="true" diffuse=".6 .6 .6" specular="0.2 0.2 0.2" pos="0 0 4" dir="0 0 -1"/>
     <geom name="ground" type="plane" size="0 0 1" pos="0.001 0 0" quat="1 0 0 0" material="matplane" condim="3" conaffinity='15'/>
 
-    <body name="base_link" pos="0 0 1">
+    <body name="base_link" pos="0 0 0.7">
       <inertial pos="-0.026899 -1.898e-06 0.035918" quat="0.99999 0.00379473 0.00224104 -9.36135e-05" mass="5.7651" diaginertia="0.0200531 0.0145821 0.0131238"/>
       <geom type="mesh" contype="0" conaffinity="0" group="1" density="0" rgba="0.89804 0.91765 0.92941 1" mesh="base_link"/>
       <geom type="mesh" rgba="0.89804 0.91765 0.92941 1" mesh="base_link" class="visualgeom"/>

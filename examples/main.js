@@ -290,7 +290,7 @@ export class MuJoCoDemo {
         const delta = error.dot(jacobian) / jacobian.lengthSq();
   
         // Limit the maximum change in joint position
-        const maxDelta = 0.01;
+        const maxDelta = 0.1;
         const clampedDelta = Math.max(-maxDelta, Math.min(maxDelta, delta));
   
         const jointQposAdr = this.model.jnt_qposadr[jointId];

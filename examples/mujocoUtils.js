@@ -32,7 +32,7 @@ export function setupGUI(parentContext) {
   parentContext.gui.add(parentContext.params, 'scene', {
     "Humanoid": "humanoid.xml",
     "Warehouse": "warehouse-env.xml",
-    "Simplified": "simplified.xml",
+    //"Simplified": "simplified.xml",
   }).name('Example Scene').onChange(reload);
 
   // Add a help menu.

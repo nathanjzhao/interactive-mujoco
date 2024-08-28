@@ -24,7 +24,7 @@ export class MuJoCoDemo {
     this.simulation = new mujoco.Simulation(this.model, this.state);
 
     // Define Random State Variables
-    this.params = { scene: initialScene, paused: false, useModel: true, help: false, ctrlnoiserate: 0.0, ctrlnoisestd: 0.0, keyframeNumber: 0 };
+    this.params = { scene: initialScene, paused: false, useModel: true, help: false, ctrlnoiserate: 0.0, ctrlnoisestd: 0.0, keyframeNumber: 0, ikEnabled: false};
     this.mujoco_time = 0.0;
     this.bodies  = {}, this.lights = {};
     this.tmpVec  = new THREE.Vector3();
@@ -72,7 +72,6 @@ export class MuJoCoDemo {
     this.loadPPOModel();
 
     this.ikTarget = new THREE.Vector3();
-    this.ikEnabled = false;
     this.ikJoints = ['shoulder1_left', 'shoulder2_left', 'elbow_left'];
     this.ikEndEffector = 'hand_left';
 
@@ -123,29 +122,33 @@ export class MuJoCoDemo {
 
   // should re-get pawel-diff
   async loadPPOModel() {
+    let modelPath;
     switch (this.params.scene) {
       case 'humanoid.xml':
-        this.ppo_model = await tf.loadLayersModel('models/2_frame/model.json');
-        this.getObservation = () => this.getObservationSkeleton(2, 10, 6);
+        modelPath = 'models/humanoid_stand_6_frams_noise_1e-4/model.json';
+        this.getObservation = () => this.getObservationSkeleton(0, 10, 6);
         break;
       case 'blank':
-        this.ppo_model = await tf.loadLayersModel('models/cvals+2_frames/model.json');
+        modelPath = 'models/cvals+2_frames/model.json';
         break;
       case 'brax_humanoid.xml':
-        this.ppo_model = await tf.loadLayersModel('models/brax_humanoid_cvalless_just_stand/model.json');
+        modelPath = 'models/brax_humanoid_cvalless_just_stand/model.json';
         this.getObservation = () => this.getObservationSkeleton(0, -1, -1);
         break;
       case 'brax_humanoidstandup.xml':
-        this.ppo_model = await tf.loadLayersModel('models/brax_humanoid_standup/model.json');
+        modelPath = 'models/brax_humanoid_standup/model.json';
         this.getObservation = () => this.getObservationSkeleton(0, 20, 12);
         break;
       case 'dora/dora2.xml':
-        this.ppo_model = await tf.loadLayersModel('models/dora/model.json');
-        this.getObservation = () => this.getObservationSkeleton(0, 100, 72); // 172 diff total 
+        modelPath = 'models/dora/model.json';
+        this.getObservation = () => this.getObservationSkeleton(0, 100, 72);
         break;
       default:
         throw new Error(`Unknown Tensorflow.js model for XML path: ${this.params.scene}`);
     }
+  
+    console.log(`Loading model from path: ${modelPath}`);
+    this.ppo_model = await tf.loadLayersModel(modelPath);
   }
 
   getObservationSkeleton(qpos_slice, cinert_slice, cvel_slice) {
@@ -221,23 +224,11 @@ export class MuJoCoDemo {
       case 'j':
         this.moveActuator('elbow_', -stepSize);
         break;
-      case 'i':
-        this.toggleIK();
-        break;
     }
-  }
-
-  /* Inverse Kinematics */
-  toggleIK() {
-    this.ikEnabled = !this.ikEnabled;
-    if (this.ikEnabled) {
-      this.originalQpos = new Float64Array(this.simulation.qpos);
-    }
-    console.log(`IK ${this.ikEnabled ? 'enabled' : 'disabled'}`);
   }
 
   solveIK(id) {
-    if (!this.ikEnabled) return;
+    if (!this.params.ikEnabled) return;
   
     const bodyName = this.getBodyNameById(id);
     if (bodyName !== this.ikEndEffector) {
@@ -317,9 +308,6 @@ export class MuJoCoDemo {
 
     // Add the iteration record to the overall IK control records
     this.ikControlRecords.push(iterationRecord);
-
-    // Optionally, you can save the records to a file here or provide a method to do so
-    // this.saveIKControlRecords();
   }
 
   calculateJacobian(jointId) {
@@ -495,6 +483,13 @@ export class MuJoCoDemo {
 
     if (!this.params["paused"]) {
 
+      // // reset to original state before paused
+      // if (this.pausedState) {
+      //   this.simulation.qpos.set(this.pausedState.qpos);
+      //   this.simulation.ctrl.set(this.pausedState.ctrl);
+      //   this.pausedState = null;
+      // }
+
       // Update originalQpos when unpaused
       if (!this.originalQpos || this.originalQpos.length !== this.simulation.qpos.length) {
         this.originalQpos = new Float64Array(this.simulation.qpos);
@@ -502,7 +497,7 @@ export class MuJoCoDemo {
         this.originalQpos.set(this.simulation.qpos);
       }
 
-      if (this.ppo_model && this.params["useModel"]) { 
+      if (this.ppo_model && this.params.useModel) { 
         const observationArray = this.getObservation();
         const inputTensor = tf.tensor2d([observationArray]);
         const resultTensor = this.ppo_model.predict(inputTensor);
@@ -515,18 +510,20 @@ export class MuJoCoDemo {
               // Ensure the actuator index is within bounds
               if (i < this.simulation.ctrl.length) {
 
-                  let clippedValue = Math.max(-1, Math.min(1, data[i]));
+                  // let clippedValue = Math.max(-1, Math.mi(1, data[i]));
 
-                  let [min, max] = this.actuatorRanges[i];
+                  // let [min, max] = this.actuatorRanges[i];
 
-                  // Scale to fit between min and max
-                  let newValue = min + (clippedValue + 1) * (max - min) / 2;
+                  // // Scale to fit between min and maxn
+                  // let newValue = min + (clippedValue + 1) * (max - min) / 2;
 
-                  // Update the actuator value
-                  this.simulation.ctrl[i] = newValue;
+                  // // Update the actuator value
+                  // this.simulation.ctrl[i] = newValue;
                   
-                  // Optionally, update the corresponding parameter
-                  this.params[this.actuatorNames[i]] = newValue;
+                  // // Optionally, update the corresponding parameter
+                  // this.params[this.actuatorNames[i]] = newValue;
+                  this.simulation.ctrl[i] = data[i];
+                  this.params[this.actuatorNames[i]] = data[i];
               } else {
                 console.error('Model output index out of bounds:', i);
               }
@@ -538,8 +535,7 @@ export class MuJoCoDemo {
       if (timeMS - this.mujoco_time > 35.0) { this.mujoco_time = timeMS; }
       while (this.mujoco_time < timeMS) {
 
-        
-      // updates states from dragging
+        // updates states from dragging
         // Jitter the control state with gaussian random noise
         if (this.params["ctrlnoisestd"] > 0.0) {
           let rate  = Math.exp(-timestep / Math.max(1e-10, this.params["ctrlnoiserate"]));
@@ -577,8 +573,16 @@ export class MuJoCoDemo {
       }
     } else if (this.params["paused"]) {
 
+      // // store the state on pause to restore to later
+      // if (!this.pausedState) {
+      //   this.pausedState = {
+      //     qpos: new Float64Array(this.simulation.qpos),
+      //     ctrl: new Float64Array(this.simulation.ctrl)
+      //   };
+      // }
+
       this.dragStateManager.update(); // Update the world-space force origin
-      if (this.ikEnabled) {
+      if (this.params.ikEnabled) { 
         let dragged = this.dragStateManager.physicsObject;
         if (dragged && dragged.bodyID) {
           this.ikTarget.copy(this.dragStateManager.currentWorld);

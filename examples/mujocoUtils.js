@@ -2,6 +2,30 @@ import * as THREE from 'three';
 import { Reflector  } from './utils/Reflector.js';
 import { MuJoCoDemo } from './main.js';
 
+
+export function printJointInfo(model, simulation) {
+  let textDecoder = new TextDecoder("utf-8");
+  let nullChar = textDecoder.decode(new ArrayBuffer(1));
+
+  console.log("Joint Information:");
+  for (let i = 0; i < model.njnt; i++) {
+    let name = textDecoder.decode(
+      model.names.subarray(
+        model.name_jntadr[i]
+      )
+    ).split(nullChar)[0];
+
+    let qposAdr = model.jnt_qposadr[i];
+    let qposNum = model.jnt_type[i] === 0 ? 7 : model.jnt_type[i]; // 7 for free joint, otherwise use jnt_type
+
+    let positions = simulation.qpos.slice(qposAdr, qposAdr + qposNum);
+
+    console.log(`Joint ${i}: ${name}`);
+    console.log(`  Position in qpos: ${qposAdr}`);
+    console.log(`  Values: ${positions}`);
+  }
+}
+
 export async function reloadFunc() {
   // Delete the old scene and load the new scene
   this.scene.remove(this.scene.getObjectByName("MuJoCo Root"));
@@ -10,20 +34,11 @@ export async function reloadFunc() {
 
   // console.log(this.model, this.state, this.simulation, this.bodies, this.lights);
 
-  // this.model.setOption("integrator", mujoco.INTEGRATOR_IMPLICIT);
-  // this.model.setOption("dt", 0.002);  // Same as timestep in XML
-  // this.model.setOption("iterations", 50);
-  // this.model.setOption("solver", mujoco.SOLVER_NEWTON);
-  // this.model.setOption("tolerance", 1e-10);
-  // this.model.setOption("impratio", 1);
-  // this.model.setOption("noslip_iterations", 5);
-  // this.model.setOption("noslip_tolerance", 1e-6);
-  // this.model.setOption("mpr_iterations", 50);
-  // this.model.setOption("mpr_tolerance", 1e-6);
-  // this.model.setOption("apirate", 1);
-  // this.model.setOption("cone", mujoco.CONE_ELLIPTIC);
-  // this.model.setOption("jacobian", mujoco.JACOBIAN_DENSE);
-  // this.model.setOption("collision", mujoco.COLLISION_ALL);
+  // Log the current options
+  const options = this.model.getOptions();
+  console.log("Current model options:", options);
+  
+  // this.pausedState = null;
 
   // Initialize originalQpos with zeros
   this.originalQpos = new Float64Array(this.simulation.qpos.length);
@@ -318,11 +333,16 @@ export function setupGUI(parentContext) {
       pausedText.style.color = 'white';
       pausedText.style.font = 'normal 18px Arial';
       pausedText.innerHTML = 'pause';
+      pausedText.id = 'paused-text';
       parentContext.container.appendChild(pausedText);
     } else {
-      parentContext.container.removeChild(parentContext.container.lastChild);
+      const pausedText = document.getElementById('paused-text');
+      if (pausedText) {
+        parentContext.container.removeChild(pausedText);
+      }
     }
   });
+
   document.addEventListener('keydown', (event) => {
     if (event.code === 'Space') {
       parentContext.params.paused = !parentContext.params.paused;
@@ -333,10 +353,67 @@ export function setupGUI(parentContext) {
   actionInnerHTML += 'Play / Pause<br>';
   keyInnerHTML += 'Space<br>';
 
-  // Add enable / disable model checkbox.
+  // Add IK enabled checkbox
+  parentContext.params.ikEnabled = false;
+  let ikEnabledCheckbox = simulationFolder.add(parentContext.params, 'ikEnabled').name('IK Enabled').listen();
+  ikEnabledCheckbox.onChange((value) => {
+    if (value) {
+      const ikEnabledText = document.createElement('div');
+      ikEnabledText.style.position = 'absolute';
+      ikEnabledText.style.top = '40px';  // Position it below the 'pause' text
+      ikEnabledText.style.left = '10px';
+      ikEnabledText.style.color = 'white';
+      ikEnabledText.style.font = 'normal 18px Arial';
+      ikEnabledText.innerHTML = 'IK enabled';
+      ikEnabledText.id = 'ik-enabled-text';
+      parentContext.container.appendChild(ikEnabledText);
+    } else {
+      const ikEnabledText = document.getElementById('ik-enabled-text');
+      if (ikEnabledText) {
+        parentContext.container.removeChild(ikEnabledText);
+      }
+    }
+  });
+
+  // Add keyboard shortcut for toggling IK
+  document.addEventListener('keydown', (event) => {
+    if (event.ctrlKey && event.code === 'KeyI') {
+      parentContext.params.ikEnabled = !parentContext.params.ikEnabled;
+      ikEnabledCheckbox.setValue(parentContext.params.ikEnabled);
+      event.preventDefault();
+      console.log(`IK ${parentContext.params.ikEnabled ? 'enabled' : 'disabled'}`);
+    }
+  });
+  actionInnerHTML += 'Toggle IK<br>';
+  keyInnerHTML += 'I<br>';
+  
+  // Add model enabled checkbox
+  parentContext.params.useModel = true;
+  let modelEnabledCheckbox = simulationFolder.add(parentContext.params, 'useModel').name('Model Enabled').listen();
+  modelEnabledCheckbox.onChange((value) => {
+    if (value) {
+      const modelEnabledText = document.createElement('div');
+      modelEnabledText.style.position = 'absolute';
+      modelEnabledText.style.top = '70px';  // Position it below the 'IK enabled' text
+      modelEnabledText.style.left = '10px';
+      modelEnabledText.style.color = 'white';
+      modelEnabledText.style.font = 'normal 18px Arial';
+      modelEnabledText.innerHTML = 'Model enabled';
+      modelEnabledText.id = 'model-enabled-text';
+      parentContext.container.appendChild(modelEnabledText);
+    } else {
+      const modelEnabledText = document.getElementById('model-enabled-text');
+      if (modelEnabledText) {
+        parentContext.container.removeChild(modelEnabledText);
+      }
+    }
+  });
+
+  // Add keyboard shortcut for toggling model
   document.addEventListener('keydown', (event) => {
     if (event.ctrlKey && event.code === 'KeyM') {
       parentContext.params.useModel = !parentContext.params.useModel;
+      modelEnabledCheckbox.updateDisplay();
       event.preventDefault();
     }
   });
@@ -489,6 +566,8 @@ export async function loadSceneFromURL(mujoco, filename, parent) {
     let model = parent.model;
     let state = parent.state;
     let simulation = parent.simulation;
+
+    printJointInfo(parent.model, parent.simulation);
 
     // Decode the null-terminated string names.
     let textDecoder = new TextDecoder("utf-8");

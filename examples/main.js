@@ -5,6 +5,8 @@ import { DragStateManager } from './utils/DragStateManager.js';
 import { setupGUI, downloadExampleScenesFolder, loadSceneFromURL, getPosition, getQuaternion, toMujocoPos, standardNormal } from './mujocoUtils.js';
 import   load_mujoco        from '../dist/mujoco_wasm.js';
 
+import { LogStdLayer } from './utils/LogStdLayer.js';
+
 // Load the MuJoCo Module
 const mujoco = await load_mujoco();
 
@@ -117,62 +119,6 @@ export class MuJoCoDemo {
         this.model.actuator_ctrlrange[2 * i + 1]
       ]);
     }
-  }
-
-
-  // should re-get pawel-diff
-  async loadPPOModel() {
-    let modelPath;
-    switch (this.params.scene) {
-      case 'humanoid.xml':
-        modelPath = 'models/humanoid_stand_6_frams_noise_1e-4/model.json';
-        this.getObservation = () => this.getObservationSkeleton(0, 10, 6);
-        break;
-      case 'blank':
-        modelPath = 'models/cvals+2_frames/model.json';
-        break;
-      case 'brax_humanoid.xml':
-        modelPath = 'models/brax_humanoid_cvalless_just_stand/model.json';
-        this.getObservation = () => this.getObservationSkeleton(0, -1, -1);
-        break;
-      case 'brax_humanoidstandup.xml':
-        modelPath = 'models/brax_humanoid_standup/model.json';
-        this.getObservation = () => this.getObservationSkeleton(0, 20, 12);
-        break;
-      case 'dora/dora2.xml':
-        modelPath = 'models/dora/model.json';
-        this.getObservation = () => this.getObservationSkeleton(0, 100, 72);
-        break;
-      default:
-        throw new Error(`Unknown Tensorflow.js model for XML path: ${this.params.scene}`);
-    }
-  
-    console.log(`Loading model from path: ${modelPath}`);
-    this.ppo_model = await tf.loadLayersModel(modelPath);
-  }
-
-  getObservationSkeleton(qpos_slice, cinert_slice, cvel_slice) {
-    const qpos = this.simulation.qpos.slice(qpos_slice);
-    const qvel = this.simulation.qvel;
-    const cinert = cinert_slice !== -1 ? this.simulation.cinert.slice(cinert_slice) : [];
-    const cvel = cvel_slice !== -1 ? this.simulation.cvel.slice(cvel_slice) : [];
-    const qfrc_actuator = this.simulation.qfrc_actuator;
-  
-    // console.log('qpos length:', qpos.length);
-    // console.log('qvel length:', qvel.length);
-    // console.log('cinert length:', cinert.length);
-    // console.log('cvel length:', cvel.length);
-    // console.log('qfrc_actuator length:', qfrc_actuator.length);
-  
-    const obsComponents = [
-      ...qpos,
-      ...qvel,
-      ...cinert,
-      ...cvel,
-      ...qfrc_actuator
-    ];
-  
-    return obsComponents;
   }
 
   handleKeyPress(event) {
@@ -477,6 +423,92 @@ export class MuJoCoDemo {
     this.renderer.setSize( window.innerWidth, window.innerHeight );
   }
 
+
+  applyControls(timestep) {
+    for (let i = 0; i < this.actuatorNames.length; i++) {
+      const actuatorName = this.actuatorNames[i];
+      const jointIndex = this.model.actuator_trnid[2 * i];
+      const jointAddress = this.model.jnt_qposadr[jointIndex];
+
+      // Get current position and velocity
+      const currentPosition = this.simulation.qpos[jointAddress];
+      const currentVelocity = this.simulation.qvel[jointAddress];
+
+      // Get desired position from control input
+      const desiredPosition = this.params[actuatorName];
+
+      // PD control
+      const kp = 100; // Proportional gain
+      const kd = 10;  // Derivative gain
+
+      const positionError = desiredPosition - currentPosition;
+      const velocityError = -currentVelocity; // Assuming desired velocity is 0
+
+      const control = kp * positionError + kd * velocityError;
+
+      // Apply the control force
+      this.simulation.qfrc_applied[jointAddress] += control;
+      console.log(this.simulation.qfrc_applied[jointAddress]);
+    }
+  }
+
+
+  // should re-get pawel-diff
+  async loadPPOModel() {
+    let modelPath;
+
+    switch (this.params.scene) {
+      case 'humanoid.xml':
+        modelPath = 'models/humanoid_stand_6_frams_noise_1e-4/model.json';
+        this.getObservation = () => this.getObservationSkeleton(0, 10, 6);
+        break;
+      case 'blank':
+        modelPath = 'models/cvals+2_frames/model.json';
+        break;
+      case 'brax_humanoid.xml':
+        modelPath = 'models/brax_humanoid_cvalless_just_stand/model.json';
+        this.getObservation = () => this.getObservationSkeleton(0, -1, -1);
+        break;
+      case 'brax_humanoidstandup.xml':
+        modelPath = 'models/brax_humanoid_standup/model.json';
+        this.getObservation = () => this.getObservationSkeleton(0, 20, 12);
+        break;
+      case 'dora/dora2.xml':
+        modelPath = 'models/dora/model.json';
+        this.getObservation = () => this.getObservationSkeleton(0, 100, 72);
+        break;
+      default:
+        throw new Error(`Unknown Tensorflow.js model for XML path: ${this.params.scene}`);
+    }
+
+    // Load the model with custom objects
+    this.ppo_model = await tf.loadLayersModel(modelPath);
+  }
+
+  getObservationSkeleton(qpos_slice, cinert_slice, cvel_slice) {
+    const qpos = this.simulation.qpos.slice(qpos_slice);
+    const qvel = this.simulation.qvel;
+    const cinert = cinert_slice !== -1 ? this.simulation.cinert.slice(cinert_slice) : [];
+    const cvel = cvel_slice !== -1 ? this.simulation.cvel.slice(cvel_slice) : [];
+    const qfrc_actuator = this.simulation.qfrc_actuator;
+  
+    // console.log('qpos length:', qpos.length);
+    // console.log('qvel length:', qvel.length);
+    // console.log('cinert length:', cinert.length);
+    // console.log('cvel length:', cvel.length);
+    // console.log('qfrc_actuator length:', qfrc_actuator.length);
+  
+    const obsComponents = [
+      ...qpos,
+      ...qvel,
+      ...cinert,
+      ...cvel,
+      ...qfrc_actuator
+    ];
+  
+    return obsComponents;
+  }
+
   // render loop
   render(timeMS) {
     this.controls.update();
@@ -500,35 +532,58 @@ export class MuJoCoDemo {
       if (this.ppo_model && this.params.useModel) { 
         const observationArray = this.getObservation();
         const inputTensor = tf.tensor2d([observationArray]);
-        const resultTensor = this.ppo_model.predict(inputTensor);
-
-        resultTensor.data().then(data => {
-          // console.log('Model output:', data);
+      
+        console.log("Predicting...");
+        try {
+          const prediction = this.ppo_model.predict(inputTensor);
           
-          // Assuming the model output corresponds to actuator values
-          for (let i = 0; i < data.length; i++) {
-              // Ensure the actuator index is within bounds
+          if (!Array.isArray(prediction) || prediction.length !== 3) {
+            console.error('Unexpected prediction output:', prediction);
+            return;
+          }
+      
+          const [actorMean, logStd, criticValue] = prediction;
+      
+          console.log('Actor Mean:', actorMean.arraySync());
+          console.log('Log Std:', logStd.arraySync());
+          console.log('Critic Value:', criticValue.arraySync());
+      
+          // Use tf.tidy to automatically dispose of intermediate tensors
+          tf.tidy(() => {
+            const stdDev = tf.exp(logStd);
+            const noise = tf.randomNormal(actorMean.shape);
+            const actions = actorMean.add(stdDev.mul(noise));
+      
+            const actionData = actions.dataSync();
+      
+            // Update actuator controls
+            for (let i = 0; i < actionData.length; i++) {
               if (i < this.simulation.ctrl.length) {
-
-                  // let clippedValue = Math.max(-1, Math.mi(1, data[i]));
-
-                  // let [min, max] = this.actuatorRanges[i];
-
-                  // // Scale to fit between min and maxn
-                  // let newValue = min + (clippedValue + 1) * (max - min) / 2;
-
-                  // // Update the actuator value
-                  // this.simulation.ctrl[i] = newValue;
-                  
-                  // // Optionally, update the corresponding parameter
-                  // this.params[this.actuatorNames[i]] = newValue;
-                  this.simulation.ctrl[i] = data[i];
-                  this.params[this.actuatorNames[i]] = data[i];
+                let action = actionData[i];
+                
+                // Clip action to [-1, 1] range
+                let clippedAction = Math.max(-1, Math.min(1, action));
+      
+                // Scale action to actuator range
+                let [min, max] = this.actuatorRanges[i];
+                let newValue = min + (clippedAction + 1) * (max - min) / 2;
+      
+                this.simulation.ctrl[i] = newValue;
+                this.params[this.actuatorNames[i]] = newValue;
               } else {
                 console.error('Model output index out of bounds:', i);
               }
-          }
-        });
+            }
+          });
+      
+          // Dispose of tensors
+          inputTensor.dispose();
+          actorMean.dispose();
+          logStd.dispose();
+          criticValue.dispose();
+        } catch (error) {
+          console.error('Error during model prediction:', error);
+        }
       }
 
       let timestep = this.model.getOptions().timestep;

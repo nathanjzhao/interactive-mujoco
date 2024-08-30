@@ -191,36 +191,14 @@ export function setupGUI(parentContext) {
     dropdown.__onChange = onChangeFunc;
   }
 
-  // function updateSceneDropdown(dropdown, scenes) {
-  //   // Remove all options from the underlying select element
-  //   if (dropdown.__select && dropdown.__select.options) {
-  //     dropdown.__select.options.length = 0;
-  //   }
-  //   console.log("scenes", scenes)
-  
-  //   // Update the dropdown's __select property
-  //   dropdown.__select = document.createElement('select');
-  
-  //   // Add new options
-  //   for (let [name, file] of Object.entries(scenes)) {
-  //     let option = document.createElement('option');
-  //     option.text = name;
-  //     option.value = file;
-  //     dropdown.__select.add(option);
-  //   }
-  
-  //   // Update the controller's object and property
-  //   dropdown.object = scenes;
-  //   dropdown.property = 'scene';
-  
-  //   // Rebuild the DOM elements
-  //   dropdown.domElement.removeChild(dropdown.domElement.childNodes[0]);
-  //   dropdown.domElement.appendChild(dropdown.__select);
-  
-  //   // Update the display
-  //   dropdown.updateDisplay();
-  //   dropdown.onChange(reload);
-  // }
+
+  // Add a folder for critic values
+  let criticFolder = parentContext.gui.addFolder("Critic Values");
+
+  // Add a display for critic values
+  parentContext.params.criticValue = 0;
+  let criticValueDisplay = criticFolder.add(parentContext.params, 'criticValue').name('Critic Value').listen();
+  criticValueDisplay.domElement.style.pointerEvents = 'none';
 
   // Add a help menu.
   // Parameters:
@@ -401,11 +379,17 @@ export function setupGUI(parentContext) {
       modelEnabledText.innerHTML = 'Model enabled';
       modelEnabledText.id = 'model-enabled-text';
       parentContext.container.appendChild(modelEnabledText);
+
+      // Show critic folder when model is enabled
+      criticFolder.open();
     } else {
       const modelEnabledText = document.getElementById('model-enabled-text');
       if (modelEnabledText) {
         parentContext.container.removeChild(modelEnabledText);
       }
+
+      // Hide critic folder when model is disabled
+      criticFolder.close();
     }
   });
 

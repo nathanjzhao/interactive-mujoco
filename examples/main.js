@@ -459,7 +459,7 @@ export class MuJoCoDemo {
 
     switch (this.params.scene) {
       case 'humanoid.xml':
-        modelPath = 'models/humanoid_stand_6_frams_noise_1e-4/model.json';
+        modelPath = 'models/humanoid_stand_4_frams_noise_1e-4/model.json';
         this.getObservation = () => this.getObservationSkeleton(0, 10, 6);
         break;
       case 'blank':
@@ -544,10 +544,13 @@ export class MuJoCoDemo {
       
           const [actorMean, logStd, criticValue] = prediction;
       
-          console.log('Actor Mean:', actorMean.arraySync());
-          console.log('Log Std:', logStd.arraySync());
-          console.log('Critic Value:', criticValue.arraySync());
-      
+          // console.log('Actor Mean:', actorMean.arraySync());
+          // console.log('Log Std:', logStd.arraySync());
+          // console.log('Critic Value:', criticValue.arraySync());
+
+          // Update the critic value in the GUI
+          this.params.criticValue = criticValue.dataSync()[0];
+        
           // Use tf.tidy to automatically dispose of intermediate tensors
           tf.tidy(() => {
             const stdDev = tf.exp(logStd);

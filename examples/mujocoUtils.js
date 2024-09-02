@@ -40,8 +40,8 @@ export async function reloadFunc() {
   
   // this.pausedState = null;
 
-  // Initialize originalQpos with zeros
-  this.originalQpos = new Float64Array(this.simulation.qpos.length);
+  // Initialize beforePauseQpos with zeros
+  this.beforePauseQpos = new Float64Array(this.simulation.qpos.length);
 
   this.simulation.forward();
   for (let i = 0; i < this.updateGUICallbacks.length; i++) {

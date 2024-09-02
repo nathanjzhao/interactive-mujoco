@@ -10,6 +10,24 @@ import { LogStdLayer } from './utils/LogStdLayer.js';
 // Load the MuJoCo Module
 const mujoco = await load_mujoco();
 
+const defaultRewardConfig = {
+  originalPos: {
+    expCoefficient: 2,
+    subtractionFactor: 0.05,
+    maxDiffNorm: 0.5,
+  },
+  orientationReward: {
+    expCoefficient: 1,
+  },
+  weights: {
+    ctrlCost: 0.1,
+    originalPos: 4,
+    orientation: 1,
+    velocity: 1.25,
+    height: 0,
+  },
+};
+
 // Set up Emscripten's Virtual File System
 var initialScene = "humanoid.xml";
 mujoco.FS.mkdir('/working');
@@ -69,13 +87,20 @@ export class MuJoCoDemo {
     this.controls.screenSpacePanning = true;
     this.controls.update();
 
+    this.state = null;
     this.actuatorNames = [];
     this.actuatorRanges = [];
     this.loadPPOModel();
 
-    this.ikTarget = new THREE.Vector3();
-    this.ikJoints = ['shoulder1_left', 'shoulder2_left', 'elbow_left'];
-    this.ikEndEffector = 'hand_left';
+    this.ikEndEffectors = ['hand_left', 'hand_right'];
+    this.ikTargets = {
+      'hand_left': new THREE.Vector3(),
+      'hand_right': new THREE.Vector3()
+    };
+    this.ikJointChains = {
+      'hand_left': ['shoulder1_left', 'shoulder2_left', 'elbow_left'],
+      'hand_right': ['shoulder1_right', 'shoulder2_right', 'elbow_right']
+    };
 
     this.estimateControlForPositionDiff = this.estimateControlForPositionDiff.bind(this);
     this.ikControlRecords = [];
@@ -88,6 +113,8 @@ export class MuJoCoDemo {
     // Initialize the Drag State Manager.
     this.dragStateManager = new DragStateManager(this.scene, this.renderer, this.camera, this.container.parentElement, this.controls);
     document.addEventListener('keydown', this.handleKeyPress.bind(this));
+
+    this.initialQpos = new Float64Array(this.simulation.qpos);
   }
 
   async init() {
@@ -173,51 +200,52 @@ export class MuJoCoDemo {
     }
   }
 
-  solveIK(id) {
+  solveIK(endEffectorId) {
     if (!this.params.ikEnabled) return;
   
-    const bodyName = this.getBodyNameById(id);
-    if (bodyName !== this.ikEndEffector) {
+    const bodyName = this.getBodyNameById(endEffectorId);
+    if (!this.ikEndEffectors.includes(bodyName)) {
       console.error(`Body "${bodyName}" is not an end effector`);
       return;
     }
   
-    const endEffectorBody = this.bodies[id];
+    const endEffectorBody = this.bodies[endEffectorId];
     if (!endEffectorBody) {
-      console.error(`End effector body "${this.ikEndEffector}" not found`);
+      console.error(`End effector body "${bodyName}" not found`);
       return;
     }
   
-    const targetPosition = this.ikTarget;
+    const targetPosition = this.ikTargets[bodyName];
+    const jointChain = this.ikJointChains[bodyName];
     const maxIterations = 10;
     const epsilon = 0.01;
     const timeStep = this.model.getOptions().timestep;
-
+  
     let iterationRecord = {
       targetPosition: targetPosition.toArray(),
       joints: {}
     };
   
-    console.log(`IK Target: ${targetPosition.toArray()}`);
+    console.log(`IK Target for ${bodyName}: ${targetPosition.toArray()}`);
   
     for (let iteration = 0; iteration < maxIterations; iteration++) {
       const currentPosition = new THREE.Vector3();
-      getPosition(this.simulation.xpos, this.getBodyIdByName(this.ikEndEffector), currentPosition);
+      getPosition(this.simulation.xpos, endEffectorId, currentPosition);
       const error = targetPosition.clone().sub(currentPosition);
   
       if (error.length() < epsilon) {
-        console.log('Target reached, stopping IK');
+        console.log(`Target for ${bodyName} reached, stopping IK`);
         break;
       }
   
-      for (const jointName of this.ikJoints) {
+      for (const jointName of jointChain) {
         const jointId = this.getJointIdByName(jointName);
         if (jointId === -1) {
           console.warn(`Joint ${jointName} not found`);
           continue;
         }
   
-        const jacobian = this.calculateJacobian(jointId);
+        const jacobian = this.calculateJacobian(jointId, endEffectorId);
   
         if (jacobian.lengthSq() < 1e-10) {
           console.warn(`Near-zero Jacobian for joint ${jointName}, skipping`);
@@ -232,11 +260,10 @@ export class MuJoCoDemo {
   
         const jointQposAdr = this.model.jnt_qposadr[jointId];
         this.simulation.qpos[jointQposAdr] += clampedDelta;
-        
-
+  
         // Estimate control for this joint
-        const estimatedControl = this.estimateControlForPositionDiff(jointId, clampedDelta, timeStep);
-        
+        const estimatedControl = this.estimateControlForPositionDiff(jointId, clampedDelta, timeStep, endEffectorId);
+  
         // Record the joint information
         if (!iterationRecord.joints[jointName]) {
           iterationRecord.joints[jointName] = [];
@@ -245,24 +272,24 @@ export class MuJoCoDemo {
           positionChange: clampedDelta,
           estimatedControl: estimatedControl
         });
-
-        console.log(`    New joint position: ${this.simulation.qpos[jointQposAdr]}`);
+  
+        console.log(`    New joint position for ${jointName}: ${this.simulation.qpos[jointQposAdr]}`);
       }
   
       this.simulation.forward();
     }
-
+  
     // Add the iteration record to the overall IK control records
     this.ikControlRecords.push(iterationRecord);
   }
 
-  calculateJacobian(jointId) {
+  calculateJacobian(jointId, endEffectorId) {
     const epsilon = 0.001;
     const jacobian = new THREE.Vector3();
   
-    const endEffectorBodyId = this.getBodyIdByName(this.ikEndEffector);
+    const endEffectorBodyId = endEffectorId;
     if (endEffectorBodyId === undefined) {
-      console.error(`End effector body "${this.ikEndEffector}" not found`);
+      console.error(`End effector body not found`);
       return jacobian;
     }
   
@@ -296,33 +323,33 @@ export class MuJoCoDemo {
   
     return jacobian;
   }
-
-
-  estimateControlForPositionDiff(jointIndex, positionDiff, timeStep) {
+  
+  estimateControlForPositionDiff(jointIndex, positionDiff, timeStep, endEffectorId) {
     const jointAddress = this.model.jnt_qposadr[jointIndex];
-    
+  
     // Get inverse mass and damping for the joint
     let invMass = this.model.dof_invweight0 ? this.model.dof_invweight0[jointAddress] : 1 / timeStep;
     let damping = this.model.dof_damping ? this.model.dof_damping[jointAddress] : 0.1;
-
+  
     // Estimate velocity required to achieve position difference
     const estimatedVelocity = positionDiff / timeStep;
-
+  
     // Calculate force required to overcome damping and achieve velocity
     const dampingForce = damping * estimatedVelocity;
     const accelerationForce = invMass * estimatedVelocity;
-
+  
+    console.log(`End effector ID: ${endEffectorId}`);
     console.log("velocity", estimatedVelocity);
     console.log("dampingForce", dampingForce);
     console.log("accelerationForce", accelerationForce);
-
+  
     // Total force is the sum of damping and acceleration forces
     const totalForce = dampingForce + accelerationForce;
-
+  
     // Convert force to control input (assuming control input is proportional to force)
     const controlScale = 1.0; // Adjust this based on your model's characteristics
     const estimatedControl = totalForce * controlScale;
-
+  
     return estimatedControl;
   }
 
@@ -509,6 +536,94 @@ export class MuJoCoDemo {
     return obsComponents;
   }
 
+  computeReward(rewardConfig = defaultRewardConfig) {
+  
+    if (this.state == null || this.state.qpos == null) {
+      this.state = this.simulation;
+      return 0
+    }
+
+    let state = this.state;
+    let nextState = this.simulation;
+    let action = this.simulation.ctrl;
+
+    // Helper functions
+    const norm = (vector) => Math.sqrt(vector.reduce((sum, val) => sum + val * val, 0));
+    const clip = (value, min, max) => Math.min(Math.max(value, min), max);
+    const dot = (a, b) => a.reduce((sum, val, i) => sum + val * b[i], 0);
+
+  
+    // MAINTAINING ORIGINAL POSITION REWARD
+    const qpos0Diff = this.initialQpos.map((q, i) => q - state.qpos[i]);
+    const qpos0DiffNorm = norm(qpos0Diff);
+
+    const originalPos = Math.exp(
+      -rewardConfig.originalPos.expCoefficient * qpos0DiffNorm
+    ) - rewardConfig.originalPos.subtractionFactor * 
+      clip(qpos0DiffNorm, 0, rewardConfig.originalPos.maxDiffNorm);
+
+    // ORIENTATION REWARD
+    const torsoIndex = 1;
+    const torsoOrientation = state.xmat.slice(torsoIndex * 9, torsoIndex * 9 + 9); // (N, 3, 3) flattened
+    const gravityVector = [0, 0, -1];  // Assuming z-up coordinate system
+    const projectedGravity = [
+      dot(torsoOrientation.slice(0, 3), gravityVector),
+      dot(torsoOrientation.slice(3, 6), gravityVector),
+      dot(torsoOrientation.slice(6, 9), gravityVector)
+    ];
+
+    const orientation = Math.exp(-norm(projectedGravity.slice(0, 2)) * rewardConfig.orientationReward.expCoefficient);
+
+    // CONTROL COST
+    const ctrlCost = -Math.exp(-norm(action));
+
+
+    // VELOCITY REWARD
+    const centerOfMassIndex = 1;
+    const xpos = state.subtree_com[centerOfMassIndex * 3 + 0]; // (N, 3) flattened
+    const nextXpos = nextState.subtree_com[centerOfMassIndex * 3 + 0];
+    const velocity = (nextXpos - xpos) / state.dt;
+  
+    // HEIGHT REWARD
+    const height = state.qpos[2];
+  
+    // Calculate weighted rewards
+    const ctrlCostWeighted = rewardConfig.weights.ctrlCost * ctrlCost;
+    const originalPosWeighted = rewardConfig.weights.originalPos * originalPos;
+    const velocityWeighted = rewardConfig.weights.velocity * velocity;
+    const orientationWeighted = rewardConfig.weights.orientation * orientation;
+    const heightWeighted = rewardConfig.weights.height * height;
+  
+    // Calculate total reward
+    const totalReward = ctrlCostWeighted +
+      originalPosWeighted +
+      orientationWeighted +
+      heightWeighted;
+  
+    // Calculate proportions
+    const ctrlCostProp = ctrlCostWeighted / totalReward;
+    const originalPosProp = originalPosWeighted / totalReward;
+    const velocityProp = velocityWeighted / totalReward;
+    const orientationProp = orientationWeighted / totalReward;
+    const heightProp = heightWeighted / totalReward;
+
+    console.log(orientation)
+  
+    // Log proportions (equivalent to jax.debug.print)
+    console.log(
+      `Reward proportions: total_reward: ${totalReward}, ` +
+      `ctrl_cost: ${ctrlCostProp}, ` +
+      `original_pos: ${originalPosProp}, ` +
+      `orientation: ${orientationProp}, ` +
+      `height: ${heightProp}`
+    );
+  
+    this.state = nextState;
+
+    return totalReward;
+  }
+
+
   // render loop
   render(timeMS) {
     this.controls.update();
@@ -522,18 +637,19 @@ export class MuJoCoDemo {
       //   this.pausedState = null;
       // }
 
-      // Update originalQpos when unpaused
-      if (!this.originalQpos || this.originalQpos.length !== this.simulation.qpos.length) {
-        this.originalQpos = new Float64Array(this.simulation.qpos);
+      // Update beforePauseQpos when unpaused
+      if (!this.beforePauseQpos || this.beforePauseQpos.length !== this.simulation.qpos.length) {
+        this.beforePauseQpos = new Float64Array(this.simulation.qpos);
       } else {
-        this.originalQpos.set(this.simulation.qpos);
+        this.beforePauseQpos.set(this.simulation.qpos);
       }
 
       if (this.ppo_model && this.params.useModel) { 
         const observationArray = this.getObservation();
         const inputTensor = tf.tensor2d([observationArray]);
-      
-        console.log("Predicting...");
+
+        this.computeReward();
+
         try {
           const prediction = this.ppo_model.predict(inputTensor);
           
@@ -639,12 +755,20 @@ export class MuJoCoDemo {
       //   };
       // }
 
+      // Inverse kinematics
       this.dragStateManager.update(); // Update the world-space force origin
       if (this.params.ikEnabled) { 
         let dragged = this.dragStateManager.physicsObject;
+
+      
         if (dragged && dragged.bodyID) {
-          this.ikTarget.copy(this.dragStateManager.currentWorld);
-          this.solveIK(dragged.bodyID);
+          const bodyName = this.getBodyNameById(dragged.bodyID);
+          if (!this.ikEndEffectors.includes(bodyName)) {
+            console.error(`Body "${bodyName}" is not an end effector`);
+          } else {
+            this.ikTargets[bodyName].copy(this.dragStateManager.currentWorld);
+            this.solveIK([dragged.bodyID]);
+          }
         }
       } else {
         // updates states from dragging
@@ -676,57 +800,58 @@ export class MuJoCoDemo {
         }
       }
 
-      const originalQpos = this.originalQpos || new Float64Array(this.simulation.qpos);
-      const timestep = this.model.getOptions().timestep;
+      // Showing differences in position while paused (IK is better)
+      // const beforePauseQpos = this.beforePauseQpos || new Float64Array(this.simulation.qpos);
+      // const timestep = this.model.getOptions().timestep;
 
-      // Apply changes based on control inputs
-      for (let i = 0; i < this.actuatorNames.length; i++) {
-        const actuatorName = this.actuatorNames[i];
-        const jointIndex = this.model.actuator_trnid[2 * i];
-        const jointAddress = this.model.jnt_qposadr[jointIndex];
+      // // Apply changes based on control inputs
+      // for (let i = 0; i < this.actuatorNames.length; i++) {
+      //   const actuatorName = this.actuatorNames[i];
+      //   const jointIndex = this.model.actuator_trnid[2 * i];
+      //   const jointAddress = this.model.jnt_qposadr[jointIndex];
 
-        // figure out how this physics simulator works
-        let inv_mass = 1 / timestep; // Default value
-        let damping = 0.1; // Default value
+      //   // figure out how this physics simulator works
+      //   let inv_mass = 1 / timestep; // Default value
+      //   let damping = 0.1; // Default value
 
-        if (this.model.dof_invweight0 && this.model.dof_invweight0[jointAddress] !== undefined) {
-          inv_mass = this.model.dof_invweight0[jointAddress];
-        }
+      //   if (this.model.dof_invweight0 && this.model.dof_invweight0[jointAddress] !== undefined) {
+      //     inv_mass = this.model.dof_invweight0[jointAddress];
+      //   }
 
-        if (this.model.dof_damping && this.model.dof_damping[jointAddress] !== undefined) {
-          damping = this.model.dof_damping[jointAddress];
-        }
+      //   if (this.model.dof_damping && this.model.dof_damping[jointAddress] !== undefined) {
+      //     damping = this.model.dof_damping[jointAddress];
+      //   }
         
-        // Calculate torque from control input
-        const torqueDiff = this.params[actuatorName];
+      //   // Calculate torque from control input
+      //   const torqueDiff = this.params[actuatorName];
         
         
-        // Calculate joint velocity
-        let jointVelocity = 0.01;
-        if (originalQpos[jointAddress]) {
-          const positionDiff = this.simulation.qpos[jointAddress] - originalQpos[jointAddress];
-          jointVelocity = positionDiff / timestep;
+      //   // Calculate joint velocity
+      //   let jointVelocity = 0.01;
+      //   if (beforePauseQpos[jointAddress]) {
+      //     const positionDiff = this.simulation.qpos[jointAddress] - beforePauseQpos[jointAddress];
+      //     jointVelocity = positionDiff / timestep;
           
-          // Handle potential NaN or Infinity
-          if (!isFinite(jointVelocity)) {
-            jointVelocity = 0;
-            console.warn(`Invalid velocity calculated for joint ${jointAddress}. Using 0.`);
-          }
-        }
+      //     // Handle potential NaN or Infinity
+      //     if (!isFinite(jointVelocity)) {
+      //       jointVelocity = 0;
+      //       console.warn(`Invalid velocity calculated for joint ${jointAddress}. Using 0.`);
+      //     }
+      //   }
 
-        // Calculate target deviation
-        const targetDeviation = (torqueDiff * inv_mass - damping * jointVelocity) * timestep;
+      //   // Calculate target deviation
+      //   const targetDeviation = (torqueDiff * inv_mass - damping * jointVelocity) * timestep;
         
-        // Calculate current deviation
-        const currentDeviation = this.simulation.qpos[jointAddress] - originalQpos[jointAddress];
+      //   // Calculate current deviation
+      //   const currentDeviation = this.simulation.qpos[jointAddress] - beforePauseQpos[jointAddress];
         
-        // Gradually move towards target deviation
-        const step = 0.1; // Adjust for faster or slower response
-        const newDeviation = currentDeviation + (targetDeviation - currentDeviation) * step;
+      //   // Gradually move towards target deviation
+      //   const step = 0.1; // Adjust for faster or slower response
+      //   const newDeviation = currentDeviation + (targetDeviation - currentDeviation) * step;
         
-        // Apply the new deviation
-        this.simulation.qpos[jointAddress] = originalQpos[jointAddress] + newDeviation;
-      }
+      //   // Apply the new deviation
+      //   this.simulation.qpos[jointAddress] = beforePauseQpos[jointAddress] + newDeviation;
+      // }
 
       this.simulation.forward();
     }

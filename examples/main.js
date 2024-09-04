@@ -605,17 +605,15 @@ export class MuJoCoDemo {
     const originalPosProp = originalPosWeighted / totalReward;
     const velocityProp = velocityWeighted / totalReward;
     const orientationProp = orientationWeighted / totalReward;
-    const heightProp = heightWeighted / totalReward;
-
-    console.log(orientation)
+    // const heightProp = heightWeighted / totalReward;
   
     // Log proportions (equivalent to jax.debug.print)
     console.log(
-      `Reward proportions: total_reward: ${totalReward}, ` +
-      `ctrl_cost: ${ctrlCostProp}, ` +
-      `original_pos: ${originalPosProp}, ` +
-      `orientation: ${orientationProp}, ` +
-      `height: ${heightProp}`
+      `Reward proportions: total_reward: ${totalReward}, `
+      + `ctrl_cost: ${ctrlCostProp}, `
+      + `original_pos: ${originalPosProp}, `
+      + `orientation: ${orientationProp}`
+      // + `height: ${heightProp}`
     );
   
     this.state = nextState;
@@ -686,7 +684,12 @@ export class MuJoCoDemo {
                 // Scale action to actuator range
                 let [min, max] = this.actuatorRanges[i];
                 let newValue = min + (clippedAction + 1) * (max - min) / 2;
-      
+
+                // Add noise to the new value
+                if (this.params["ctrlnoisestd"] > 0.0) {
+                  newValue += this.params["ctrlnoisestd"] * standardNormal(); // Add Gaussian noise
+                }
+                  
                 this.simulation.ctrl[i] = newValue;
                 this.params[this.actuatorNames[i]] = newValue;
               } else {
@@ -711,7 +714,7 @@ export class MuJoCoDemo {
 
         // updates states from dragging
         // Jitter the control state with gaussian random noise
-        if (this.params["ctrlnoisestd"] > 0.0) {
+        if (this.params["ctrlnoisestd"] > 0.0 && !this.params["useModel"]) {
           let rate  = Math.exp(-timestep / Math.max(1e-10, this.params["ctrlnoiserate"]));
           let scale = this.params["ctrlnoisestd"] * Math.sqrt(1 - rate * rate);
           let currentCtrl = this.simulation.ctrl;
